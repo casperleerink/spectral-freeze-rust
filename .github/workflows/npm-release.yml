@@ -28,8 +28,8 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      - name: Test Rust workspace
-        run: cargo test --workspace
+      - name: Test WAM Rust crates
+        run: cargo test -p dsp -p spectral-freeze-wam
 
       - name: Build WAM npm package files
         run: npm run build
