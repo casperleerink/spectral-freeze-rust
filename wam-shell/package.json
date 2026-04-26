@@ -2,6 +2,15 @@
   "name": "spectral-freeze-wam",
   "version": "0.2.1",
   "description": "Headless Web Audio Module build of Spectral Freeze",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/casperleerink/spectral-freeze-rust.git",
+    "directory": "wam-shell"
+  },
+  "homepage": "https://github.com/casperleerink/spectral-freeze-rust#readme",
+  "bugs": {
+    "url": "https://github.com/casperleerink/spectral-freeze-rust/issues"
+  },
   "type": "module",
   "license": "MIT OR Apache-2.0",
   "files": [
