@@ -1,6 +1,6 @@
 # Spectral Freeze Rust Port
 
-Rust port of the JUCE `../spectral-freeze` plugin.
+Rust port of the JUCE [spectral-freeze](https://github.com/casperleerink/spectral-freeze) plugin.
 
 ## Workspace
 
