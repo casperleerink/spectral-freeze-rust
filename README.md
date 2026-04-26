@@ -44,7 +44,7 @@ GitHub Actions workflow `.github/workflows/npm-release.yml`:
 - uploads the tarball as a CI artifact
 - on `v*` tags, publishes to npm and attaches the tarball to the GitHub release
 
-To enable npm publishing, add an `NPM_TOKEN` repository secret with publish rights for the package.
+npm publishing uses npm Trusted Publishing, so no `NPM_TOKEN` secret is required. Configure the npm package's trusted publisher for repository `casperleerink/spectral-freeze-rust` and workflow `.github/workflows/npm-release.yml`.
 
 ## Release notes
 
