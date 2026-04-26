@@ -1,0 +1,12 @@
+[workspace]
+members = ["dsp", "clap-shell", "wam-shell"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+version = "0.2.0"
+license = "MIT OR Apache-2.0"
+authors = ["Learning"]
+
+[workspace.dependencies]
+dsp = { path = "dsp" }

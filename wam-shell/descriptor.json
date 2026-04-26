@@ -1,0 +1,14 @@
+{
+  "identifier": "com.learning.spectral-freeze",
+  "name": "Spectral Freeze",
+  "vendor": "Learning",
+  "version": "0.2.0",
+  "apiVersion": "2.0.0",
+  "isInstrument": false,
+  "hasAudioInput": true,
+  "hasAudioOutput": true,
+  "keywords": ["spectral", "freeze", "stft", "effect"],
+  "entry": "./js/index.js",
+  "binary": "../target/wasm32-unknown-unknown/release/spectral_freeze_wam.wasm",
+  "headless": true
+}

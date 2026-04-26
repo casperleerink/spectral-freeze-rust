@@ -1,0 +1,16 @@
+[package]
+name = "spectral-freeze-clap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+dsp.workspace = true
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+
+[features]
+default = []
