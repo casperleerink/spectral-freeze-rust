@@ -1,6 +1,6 @@
 {
   "name": "spectral-freeze-wam",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Headless Web Audio Module build of Spectral Freeze",
   "type": "module",
   "license": "MIT OR Apache-2.0",

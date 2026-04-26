@@ -45,3 +45,9 @@ GitHub Actions workflow `.github/workflows/npm-release.yml`:
 - on `v*` tags, publishes to npm and attaches the tarball to the GitHub release
 
 To enable npm publishing, add an `NPM_TOKEN` repository secret with publish rights for the package.
+
+## Release notes
+
+### WAM npm package 0.2.1
+
+- Verify npm release automation for `spectral-freeze-wam`.
