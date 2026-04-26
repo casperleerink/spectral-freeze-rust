@@ -1,0 +1,61 @@
+name: Build and publish WAM npm package
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  wam-npm:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Test Rust workspace
+        run: cargo test --workspace
+
+      - name: Build WAM npm package files
+        run: npm run build
+        working-directory: wam-shell
+
+      - name: Pack npm package
+        run: npm pack
+        working-directory: wam-shell
+
+      - name: Upload npm tarball as CI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spectral-freeze-wam-npm
+          path: wam-shell/spectral-freeze-wam-*.tgz
+
+      - name: Publish to npm
+        if: startsWith(github.ref, 'refs/tags/')
+        run: npm publish --access public
+        working-directory: wam-shell
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Attach npm tarball to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: wam-shell/spectral-freeze-wam-*.tgz
+          generate_release_notes: true
+          fail_on_unmatched_files: true

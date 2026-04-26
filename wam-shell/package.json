@@ -1,0 +1,37 @@
+{
+  "name": "spectral-freeze-wam",
+  "version": "0.2.0",
+  "description": "Headless Web Audio Module build of Spectral Freeze",
+  "type": "module",
+  "license": "MIT OR Apache-2.0",
+  "files": [
+    "dist",
+    "descriptor.json",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./dist/index.js",
+    "./processor": "./dist/SpectralFreezeWamProcessor.js",
+    "./wasm": "./dist/spectral_freeze_wam.wasm",
+    "./descriptor": "./descriptor.json"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "scripts": {
+    "build:wasm": "cargo build -p spectral-freeze-wam --target wasm32-unknown-unknown --release",
+    "build:package": "node scripts/build-package.mjs",
+    "build": "npm run build:wasm && npm run build:package",
+    "prepack": "npm run build:package"
+  },
+  "keywords": [
+    "web-audio",
+    "wam",
+    "audio-worklet",
+    "wasm",
+    "spectral",
+    "freeze"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

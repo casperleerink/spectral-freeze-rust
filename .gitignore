@@ -1,3 +1,5 @@
 /target/
+/wam-shell/dist/
+/wam-shell/*.tgz
 .DS_Store
 *.log

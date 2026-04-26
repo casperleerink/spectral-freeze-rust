@@ -67,7 +67,7 @@ export class SpectralFreezeWam {
   static descriptor = descriptor;
 
   static async create(audioContext, options = {}) {
-    const wasmUrl = options.wasmUrl ?? new URL("../../target/wasm32-unknown-unknown/release/spectral_freeze_wam.wasm", import.meta.url);
+    const wasmUrl = options.wasmUrl ?? new URL("./spectral_freeze_wam.wasm", import.meta.url);
     const processorUrl = options.processorUrl ?? new URL("./SpectralFreezeWamProcessor.js", import.meta.url);
     const wasmBytes = await fetch(wasmUrl).then((response) => {
       if (!response.ok) throw new Error(`Failed to fetch ${wasmUrl}: ${response.status}`);
