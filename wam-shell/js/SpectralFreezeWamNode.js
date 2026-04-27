@@ -1,14 +1,71 @@
+/**
+ * @typedef {"freeze" | "filter" | "scBoost" | "scFreqSmoothing" | "organic"} SpectralFreezeParameterId
+ */
+
+/**
+ * @typedef {object} SpectralFreezeParameterInfo
+ * @property {SpectralFreezeParameterId | string} id
+ * @property {string} name
+ * @property {"bool" | "float"} kind
+ * @property {number} min
+ * @property {number} max
+ * @property {number} default
+ * @property {string} unit
+ */
+
+/**
+ * @typedef {object} SpectralFreezeDescriptor
+ * @property {string} identifier
+ * @property {string} name
+ * @property {string} vendor
+ * @property {string} version
+ * @property {string} apiVersion
+ * @property {boolean} isInstrument
+ * @property {boolean} hasAudioInput
+ * @property {boolean} hasAudioOutput
+ * @property {string[]} keywords
+ */
+
+/**
+ * @typedef {object} SpectralFreezeWamCreateOptions
+ * @property {string | URL | Request=} wasmUrl
+ * @property {string | URL=} processorUrl
+ * @property {SpectralFreezeParameterInfo[]=} parameterInfo
+ * @property {number=} parameterRingCapacity
+ * @property {number=} mainChannels
+ * @property {number=} sidechainChannels
+ * @property {number=} maxBlock
+ */
+
+/**
+ * @typedef {object} SpectralFreezeWamNodeOptions
+ * @property {ArrayBuffer} wasmBytes
+ * @property {SharedArrayBuffer} parameterRing
+ * @property {SpectralFreezeParameterInfo[]} parameterInfo
+ * @property {number=} mainChannels
+ * @property {number=} sidechainChannels
+ * @property {number=} maxBlock
+ */
+
+/**
+ * @typedef {object} SpectralFreezeWasmManifestExports
+ * @property {WebAssembly.Memory} memory
+ * @property {() => number} sf_parameter_manifest_ptr
+ * @property {() => number} sf_parameter_manifest_len
+ */
+
 const PROCESSOR_NAME = "com.learning.spectral-freeze";
 const RING_HEADER_I32S = 2;
 const RING_READ = 0;
 const RING_WRITE = 1;
 const EVENT_U32S = 2;
 
+/** @type {SpectralFreezeDescriptor} */
 export const descriptor = {
   identifier: PROCESSOR_NAME,
   name: "Spectral Freeze",
   vendor: "Learning",
-  version: "0.2.0",
+  version: "0.2.2",
   apiVersion: "2.0.0",
   isInstrument: false,
   hasAudioInput: true,
@@ -17,6 +74,10 @@ export const descriptor = {
 };
 
 export class SpectralFreezeWamNode extends AudioWorkletNode {
+  /**
+   * @param {BaseAudioContext} audioContext
+   * @param {SpectralFreezeWamNodeOptions} options
+   */
   constructor(audioContext, options) {
     const { wasmBytes, parameterRing, mainChannels = 2, sidechainChannels = 0, maxBlock = 128 } = options;
     super(audioContext, PROCESSOR_NAME, {
@@ -26,7 +87,9 @@ export class SpectralFreezeWamNode extends AudioWorkletNode {
       processorOptions: { wasmBytes, parameterRing, mainChannels, sidechainChannels, maxBlock },
     });
 
+    /** @type {SpectralFreezeParameterInfo[]} */
     this.parameterInfo = options.parameterInfo;
+    /** @type {SharedArrayBuffer} */
     this.parameterRing = parameterRing;
     this.ringI32 = new Int32Array(parameterRing);
     this.ringU32 = new Uint32Array(parameterRing);
@@ -35,10 +98,18 @@ export class SpectralFreezeWamNode extends AudioWorkletNode {
     this.valueBits = new Uint32Array(this.valueFloat.buffer);
   }
 
+  /**
+   * @returns {SpectralFreezeParameterInfo[]}
+   */
   getParameterInfo() {
     return this.parameterInfo;
   }
 
+  /**
+   * @param {SpectralFreezeParameterId | string | number} parameterIdOrIndex
+   * @param {number} value
+   * @returns {void}
+   */
   setParameterValue(parameterIdOrIndex, value) {
     const index = typeof parameterIdOrIndex === "number"
       ? parameterIdOrIndex
@@ -66,6 +137,11 @@ export class SpectralFreezeWamNode extends AudioWorkletNode {
 export class SpectralFreezeWam {
   static descriptor = descriptor;
 
+  /**
+   * @param {BaseAudioContext} audioContext
+   * @param {SpectralFreezeWamCreateOptions} [options]
+   * @returns {Promise<SpectralFreezeWamNode>}
+   */
   static async create(audioContext, options = {}) {
     const wasmUrl = options.wasmUrl ?? new URL("./spectral_freeze_wam.wasm", import.meta.url);
     const processorUrl = options.processorUrl ?? new URL("./SpectralFreezeWamProcessor.js", import.meta.url);
@@ -99,18 +175,26 @@ export class SpectralFreezeWam {
   // intentionally headless: there is no createGui() method.
 }
 
+/**
+ * @param {number} capacity
+ * @returns {SharedArrayBuffer}
+ */
 function createParameterRing(capacity) {
   const slots = RING_HEADER_I32S + capacity * EVENT_U32S;
   return new SharedArrayBuffer(slots * Uint32Array.BYTES_PER_ELEMENT);
 }
 
+/**
+ * @param {ArrayBuffer} wasmBytes
+ * @returns {Promise<SpectralFreezeParameterInfo[]>}
+ */
 async function readParameterInfoFromWasm(wasmBytes) {
   const { instance } = await WebAssembly.instantiate(wasmBytes, {});
-  const { memory, sf_parameter_manifest_ptr, sf_parameter_manifest_len } = instance.exports;
-  const ptr = sf_parameter_manifest_ptr();
-  const len = sf_parameter_manifest_len();
-  const bytes = new Uint8Array(memory.buffer, ptr, len);
-  return JSON.parse(new TextDecoder().decode(bytes));
+  const exports = /** @type {WebAssembly.Exports & SpectralFreezeWasmManifestExports} */ (instance.exports);
+  const ptr = exports.sf_parameter_manifest_ptr();
+  const len = exports.sf_parameter_manifest_len();
+  const bytes = new Uint8Array(exports.memory.buffer, ptr, len);
+  return /** @type {SpectralFreezeParameterInfo[]} */ (JSON.parse(new TextDecoder().decode(bytes)));
 }
 
 export default SpectralFreezeWam;

@@ -18,7 +18,10 @@ await mkdir(distDir, { recursive: true });
 
 await copyFile(wasmSource, resolve(distDir, "spectral_freeze_wam.wasm"));
 await copyTextFile(resolve(packageDir, "js/SpectralFreezeWamNode.js"), resolve(distDir, "SpectralFreezeWamNode.js"));
+await copyTextFile(resolve(packageDir, "js/SpectralFreezeWamNode.d.ts"), resolve(distDir, "SpectralFreezeWamNode.d.ts"));
 await copyTextFile(resolve(packageDir, "js/SpectralFreezeWamProcessor.js"), resolve(distDir, "SpectralFreezeWamProcessor.js"));
+await copyTextFile(resolve(packageDir, "js/SpectralFreezeWamProcessor.d.ts"), resolve(distDir, "SpectralFreezeWamProcessor.d.ts"));
 await copyTextFile(resolve(packageDir, "js/index.js"), resolve(distDir, "index.js"));
+await copyTextFile(resolve(packageDir, "js/index.d.ts"), resolve(distDir, "index.d.ts"));
 
 console.log(`Built npm package files in ${distDir}`);

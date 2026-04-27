@@ -48,6 +48,11 @@ npm publishing uses npm Trusted Publishing, so no `NPM_TOKEN` secret is required
 
 ## Release notes
 
+### WAM npm package 0.2.2
+
+- Add TypeScript declarations for the public WAM API.
+- Add JSDoc/checkJs type checking for the JavaScript WAM wrapper.
+
 ### WAM npm package 0.2.1
 
 - Verify npm release automation for `spectral-freeze-wam`.
