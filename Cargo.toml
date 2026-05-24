@@ -1,10 +1,10 @@
 [workspace]
-members = ["dsp", "clap-shell", "wam-shell"]
+members = ["dsp", "clap-shell", "wam-shell", "xtask"]
 resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.2.0"
+version = "0.2.2"
 license = "MIT OR Apache-2.0"
 authors = ["Learning"]
 

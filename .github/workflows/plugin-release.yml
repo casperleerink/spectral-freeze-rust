@@ -1,0 +1,78 @@
+name: Build desktop plugins
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  desktop-plugins:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS universal
+            os: macos-13
+            artifact-suffix: macos-universal
+            bundle-command: bundle-universal
+            rust-targets: x86_64-apple-darwin,aarch64-apple-darwin
+          - name: Windows x64
+            os: windows-latest
+            artifact-suffix: windows-x64
+            bundle-command: bundle
+            rust-targets: x86_64-pc-windows-msvc
+          - name: Linux x64
+            os: ubuntu-latest
+            artifact-suffix: linux-x64
+            bundle-command: bundle
+            rust-targets: x86_64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux GUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zip libgl1-mesa-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev libxkbcommon-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Build CLAP and VST3 bundles
+        shell: bash
+        run: cargo run -p xtask -- ${{ matrix.bundle-command }} spectral-freeze-clap --release
+
+      - name: Archive plugin bundles
+        shell: bash
+        run: |
+          mkdir -p release
+          cd target/bundled
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            7z a "../../release/spectral-freeze-${{ matrix.artifact-suffix }}.zip" .
+          else
+            zip -r "../../release/spectral-freeze-${{ matrix.artifact-suffix }}.zip" .
+          fi
+
+      - name: Upload plugin bundles as CI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spectral-freeze-${{ matrix.artifact-suffix }}
+          path: release/spectral-freeze-${{ matrix.artifact-suffix }}.zip
+
+      - name: Attach plugin bundles to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/spectral-freeze-${{ matrix.artifact-suffix }}.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
