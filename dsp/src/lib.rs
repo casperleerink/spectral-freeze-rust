@@ -823,13 +823,26 @@ fn apply_organic_saturation(spectrum: &mut [Complex32; FFT_SIZE], organic_amt: f
     if organic_amt <= 0.0 {
         return;
     }
+
     let drive = 1.0 + organic_amt * 4.0;
     let makeup = drive.tanh().recip();
     let wet = organic_amt * 0.60;
+    let mut input_energy = 0.0;
+    let mut output_energy = 0.0;
+
     for c in spectrum.iter_mut() {
         let dry = c.re;
+        input_energy += dry * dry;
         let sat = (dry * drive).tanh() * makeup;
         c.re = dry + wet * (sat - dry);
+        output_energy += c.re * c.re;
+    }
+
+    if input_energy > 1.0e-12 && output_energy > 1.0e-12 {
+        let compensation = (input_energy / output_energy).sqrt();
+        for c in spectrum.iter_mut() {
+            c.re *= compensation;
+        }
     }
 }
 
@@ -946,7 +959,21 @@ mod tests {
     }
 
     #[test]
-    fn organic_does_not_collapse_level() {
+    fn organic_saturation_compensates_its_own_gain() {
+        let mut frame = [Complex32::new(0.0, 0.0); FFT_SIZE];
+        for (i, sample) in frame.iter_mut().enumerate() {
+            sample.re = (2.0 * PI * 440.0 * i as f32 / 44_100.0).sin() * 0.2;
+        }
+        let before = (frame.iter().map(|x| x.re * x.re).sum::<f32>() / frame.len() as f32).sqrt();
+
+        apply_organic_saturation(&mut frame, 1.0);
+
+        let after = (frame.iter().map(|x| x.re * x.re).sum::<f32>() / frame.len() as f32).sqrt();
+        assert!((after - before).abs() <= before * 0.01, "saturation changed RMS: before={before}, after={after}");
+    }
+
+    #[test]
+    fn organic_macro_does_not_raise_output_level() {
         fn render_rms(organic: f32) -> f32 {
             let mut processor = SpectralFreeze::default();
             processor.prepare(44_100.0, 1, 0);
@@ -962,7 +989,8 @@ mod tests {
 
         let dry = render_rms(0.0);
         let organic = render_rms(1.0);
-        assert!(organic > dry * 1.2, "organic path collapsed level: dry={dry}, organic={organic}");
+        assert!(organic <= dry * 1.05, "organic raised output level: dry={dry}, organic={organic}");
+        assert!(organic >= dry * 0.80, "organic over-compensated output level: dry={dry}, organic={organic}");
     }
 
     fn sine_buffer(freq: f32, amp: f32, sample_rate: f32, len: usize) -> Vec<f32> {
