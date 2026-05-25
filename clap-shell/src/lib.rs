@@ -355,7 +355,7 @@ fn draw_knob_row(
     let gap = ((row_width - tile_width * 4.0) / 3.0).max(0.0);
 
     let (row_rect, _) = ui.allocate_exact_size(Vec2::new(row_width, row_height), egui::Sense::hover());
-    ui.allocate_ui_at_rect(row_rect, |ui| {
+    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(row_rect), |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = gap;
             draw_knob(ui, setter, &params.filter, "FILTER", "pct", accent, panel2, border, fg, fg_dim);
