@@ -5,7 +5,7 @@
 //! parameter manifest below. Runtime allocation is limited to [`SpectralFreeze::prepare`]
 //! and construction; [`SpectralFreeze::process_block`] performs no heap allocation.
 
-use rustfft::{num_complex::Complex32, Fft, FftPlanner};
+use rustfft::{Fft, FftPlanner, num_complex::Complex32};
 use std::f32::consts::PI;
 use std::sync::Arc;
 
@@ -150,7 +150,9 @@ struct JuceRandom {
 
 impl JuceRandom {
     fn new(seed: u64) -> Self {
-        Self { seed: seed & 0x0000_ffff_ffff_ffff }
+        Self {
+            seed: seed & 0x0000_ffff_ffff_ffff,
+        }
     }
 
     #[inline]
@@ -405,7 +407,11 @@ impl SpectralFreeze {
             cola_sum += w * w;
             k += 1;
         }
-        self.window_gain = if cola_sum > 0.0 { cola_sum.recip() } else { 1.0 };
+        self.window_gain = if cola_sum > 0.0 {
+            cola_sum.recip()
+        } else {
+            1.0
+        };
 
         for k in 0..NUM_BINS {
             self.phase_advance[k] = 2.0 * PI * k as f32 * HOP_SIZE as f32 / FFT_SIZE as f32;
@@ -416,7 +422,11 @@ impl SpectralFreeze {
         self.processed_spectrum.fill(0.0);
         self.master_hop_counter = 0;
 
-        let safe_sample_rate = if sample_rate > 0.0 { sample_rate } else { 44_100.0 };
+        let safe_sample_rate = if sample_rate > 0.0 {
+            sample_rate
+        } else {
+            44_100.0
+        };
         self.sc_retention_per_hop = (-(HOP_SIZE as f32 / (safe_sample_rate * 0.75))).exp();
 
         self.precompute_spectrum_buckets();
@@ -435,8 +445,12 @@ impl SpectralFreeze {
         self.master_hop_counter = 0;
     }
 
-    pub fn main_channel_count(&self) -> usize { self.main_channel_count }
-    pub fn sidechain_channel_count(&self) -> usize { self.sidechain_channel_count }
+    pub fn main_channel_count(&self) -> usize {
+        self.main_channel_count
+    }
+    pub fn sidechain_channel_count(&self) -> usize {
+        self.sidechain_channel_count
+    }
 
     /// Process planar audio in place. `main` contains the main input copied into
     /// the output buffers. `sidechain`, when present, is read-only sidechain input.
@@ -532,13 +546,19 @@ impl SpectralFreeze {
         state.stft.copy_input_frame_to_spectrum();
 
         let fifo_primed = state.stft.samples_seen >= FFT_SIZE;
-        let capture_edge = params.freeze && fifo_primed && (!state.freeze.was_frozen || !state.freeze.has_frozen_frame);
+        let capture_edge = params.freeze
+            && fifo_primed
+            && (!state.freeze.was_frozen || !state.freeze.has_frozen_frame);
         let run_analysis = !params.freeze || capture_edge || !state.freeze.has_frozen_frame;
 
         if run_analysis {
             apply_window(state.stft.spectrum.as_mut(), self.window.as_ref());
             self.forward_fft.process(state.stft.spectrum.as_mut_slice());
-            record_analysis_frame(&mut state.freeze, state.stft.spectrum.as_ref(), self.phase_advance.as_ref());
+            record_analysis_frame(
+                &mut state.freeze,
+                state.stft.spectrum.as_ref(),
+                self.phase_advance.as_ref(),
+            );
         }
 
         if capture_edge {
@@ -590,7 +610,6 @@ impl SpectralFreeze {
 
         state.freeze.was_frozen = params.freeze;
     }
-
 }
 
 fn publish_processed_spectrum_from(
@@ -635,7 +654,11 @@ fn publish_processed_spectrum_from(
     }
 }
 
-fn record_analysis_frame(state: &mut FreezeState, spectrum: &[Complex32; FFT_SIZE], phase_advance: &[f32; NUM_BINS]) {
+fn record_analysis_frame(
+    state: &mut FreezeState,
+    spectrum: &[Complex32; FFT_SIZE],
+    phase_advance: &[f32; NUM_BINS],
+) {
     let slot = &mut state.mag_history[state.mag_history_write];
     for k in 0..NUM_BINS {
         let c = spectrum[k];
@@ -651,7 +674,8 @@ fn record_analysis_frame(state: &mut FreezeState, spectrum: &[Complex32; FFT_SIZ
                 deviation += 2.0 * PI;
             }
             let measured_advance = phase_advance[k] + deviation;
-            state.smoothed_phase_advance[k] = 0.65 * state.smoothed_phase_advance[k] + 0.35 * measured_advance;
+            state.smoothed_phase_advance[k] =
+                0.65 * state.smoothed_phase_advance[k] + 0.35 * measured_advance;
         } else {
             state.smoothed_phase_advance[k] = phase_advance[k];
         }
@@ -735,7 +759,11 @@ fn normalize_inverse_fft(spectrum: &mut [Complex32; FFT_SIZE]) {
     }
 }
 
-fn apply_synthesis_window(spectrum: &mut [Complex32; FFT_SIZE], window: &[f32; FFT_SIZE], gain: f32) {
+fn apply_synthesis_window(
+    spectrum: &mut [Complex32; FFT_SIZE],
+    window: &[f32; FFT_SIZE],
+    gain: f32,
+) {
     for i in 0..FFT_SIZE {
         spectrum[i].re *= window[i] * gain;
         spectrum[i].im = 0.0;
@@ -806,7 +834,8 @@ fn apply_organic_spectral_processing(
         let right = mag[(k + 1).min(NUM_BINS - 1)];
         let far_right = mag[(k + 2).min(NUM_BINS - 1)];
         shaped_mag[k] = (1.0 - smooth_amt) * mid
-            + smooth_amt * (0.08 * far_left + 0.22 * left + 0.40 * mid + 0.22 * right + 0.08 * far_right);
+            + smooth_amt
+                * (0.08 * far_left + 0.22 * left + 0.40 * mid + 0.22 * right + 0.08 * far_right);
     }
 
     let residual_level = organic_amt * organic_amt * (0.0007 + 0.0025 * filter_amt) * peak;
@@ -878,7 +907,8 @@ fn apply_sidechain_enhancement(
         let main_norm = spectrum[k].norm() * inv_main_peak;
         let sc_norm = smoothed_mag[k] * inv_sc_peak;
         let sc_match = clamp(sc_norm, 0.0, 1.0).powf(GAMMA);
-        let main_presence = smoothstep((main_norm - PRESENCE_THRESHOLD) / (PRESENCE_FULL - PRESENCE_THRESHOLD));
+        let main_presence =
+            smoothstep((main_norm - PRESENCE_THRESHOLD) / (PRESENCE_FULL - PRESENCE_THRESHOLD));
         raw_mask[k] = sc_match * main_presence;
     }
 
@@ -890,12 +920,46 @@ fn apply_sidechain_enhancement(
         mask[k] = (1.0 - a) * mid + a * (0.25 * left + 0.5 * mid + 0.25 * right);
     }
 
+    let pre_peak = main_peak;
+    let pre_energy = spectral_energy(spectrum);
     let max_boost = decibels_to_gain(clamp(boost_db, 0.0, 18.0));
     for k in 0..NUM_BINS {
         let shaped = smoothstep(mask[k]);
         let boost_gain = 1.0 + (max_boost - 1.0) * shaped;
         spectrum[k] *= boost_gain;
     }
+
+    let post_peak = spectrum
+        .iter()
+        .take(NUM_BINS)
+        .map(|c| c.norm())
+        .fold(0.0_f32, f32::max);
+    let post_energy = spectral_energy(spectrum);
+    let peak_compensation = if post_peak > pre_peak && post_peak > 1.0e-9 {
+        pre_peak / post_peak
+    } else {
+        1.0
+    };
+    let energy_compensation = if post_energy > pre_energy && post_energy > 1.0e-18 {
+        (pre_energy / post_energy).sqrt()
+    } else {
+        1.0
+    };
+    const SIDECHAIN_HEADROOM: f32 = 0.95;
+    let compensation = peak_compensation.min(energy_compensation) * SIDECHAIN_HEADROOM;
+    if compensation < 1.0 {
+        for c in spectrum.iter_mut().take(NUM_BINS) {
+            *c *= compensation;
+        }
+    }
+}
+
+fn spectral_energy(spectrum: &[Complex32; FFT_SIZE]) -> f32 {
+    let mut energy = spectrum[0].norm_sqr() + spectrum[FFT_SIZE / 2].norm_sqr();
+    for c in spectrum.iter().take(FFT_SIZE / 2).skip(1) {
+        energy += 2.0 * c.norm_sqr();
+    }
+    energy
 }
 
 #[inline]
@@ -943,7 +1007,12 @@ mod tests {
         let mut right = vec![0.0_f32; 4096];
         let mut channels: [&mut [f32]; 2] = [&mut left, &mut right];
         processor.process_block(&mut channels, None, ProcessParams::default());
-        assert!(channels.iter().flat_map(|ch| ch.iter()).all(|sample| sample.abs() < 1.0e-6));
+        assert!(
+            channels
+                .iter()
+                .flat_map(|ch| ch.iter())
+                .all(|sample| sample.abs() < 1.0e-6)
+        );
     }
 
     #[test]
@@ -955,7 +1024,10 @@ mod tests {
         let mut channels: [&mut [f32]; 1] = [&mut mono];
         processor.process_block(&mut channels, None, ProcessParams::default());
         let energy: f32 = channels[0].iter().map(|x| x.abs()).sum();
-        assert!(energy > 0.1, "expected overlap-add output energy, got {energy}");
+        assert!(
+            energy > 0.1,
+            "expected overlap-add output energy, got {energy}"
+        );
     }
 
     #[test]
@@ -969,7 +1041,10 @@ mod tests {
         apply_organic_saturation(&mut frame, 1.0);
 
         let after = (frame.iter().map(|x| x.re * x.re).sum::<f32>() / frame.len() as f32).sqrt();
-        assert!((after - before).abs() <= before * 0.01, "saturation changed RMS: before={before}, after={after}");
+        assert!(
+            (after - before).abs() <= before * 0.01,
+            "saturation changed RMS: before={before}, after={after}"
+        );
     }
 
     #[test]
@@ -982,15 +1057,28 @@ mod tests {
                 *sample = (2.0 * PI * 440.0 * i as f32 / 44_100.0).sin() * 0.2;
             }
             let mut channels: [&mut [f32]; 1] = [&mut mono];
-            processor.process_block(&mut channels, None, ProcessParams { organic, ..Default::default() });
+            processor.process_block(
+                &mut channels,
+                None,
+                ProcessParams {
+                    organic,
+                    ..Default::default()
+                },
+            );
             let stable = &channels[0][FFT_SIZE * 2..];
             (stable.iter().map(|x| x * x).sum::<f32>() / stable.len() as f32).sqrt()
         }
 
         let dry = render_rms(0.0);
         let organic = render_rms(1.0);
-        assert!(organic <= dry * 1.05, "organic raised output level: dry={dry}, organic={organic}");
-        assert!(organic >= dry * 0.80, "organic over-compensated output level: dry={dry}, organic={organic}");
+        assert!(
+            organic <= dry * 1.05,
+            "organic raised output level: dry={dry}, organic={organic}"
+        );
+        assert!(
+            organic >= dry * 0.80,
+            "organic over-compensated output level: dry={dry}, organic={organic}"
+        );
     }
 
     fn sine_buffer(freq: f32, amp: f32, sample_rate: f32, len: usize) -> Vec<f32> {
@@ -1016,7 +1104,14 @@ mod tests {
         processor.prepare(44_100.0, 1, 0);
         let mut mono = sine_buffer(440.0, 0.25, 44_100.0, FFT_SIZE * 8);
         let mut channels: [&mut [f32]; 1] = [&mut mono];
-        processor.process_block(&mut channels, None, ProcessParams { freeze: true, ..Default::default() });
+        processor.process_block(
+            &mut channels,
+            None,
+            ProcessParams {
+                freeze: true,
+                ..Default::default()
+            },
+        );
         assert!(channels[0].iter().all(|x| x.is_finite() && x.abs() < 8.0));
     }
 
@@ -1032,15 +1127,32 @@ mod tests {
 
         let mut capture = sine_buffer(440.0, 0.2, sample_rate, HOP_SIZE * 2);
         let mut channels: [&mut [f32]; 1] = [&mut capture];
-        processor.process_block(&mut channels, None, ProcessParams { freeze: true, ..Default::default() });
+        processor.process_block(
+            &mut channels,
+            None,
+            ProcessParams {
+                freeze: true,
+                ..Default::default()
+            },
+        );
 
         let mut silent = vec![0.0_f32; FFT_SIZE * 6];
         let mut channels: [&mut [f32]; 1] = [&mut silent];
-        processor.process_block(&mut channels, None, ProcessParams { freeze: true, ..Default::default() });
+        processor.process_block(
+            &mut channels,
+            None,
+            ProcessParams {
+                freeze: true,
+                ..Default::default()
+            },
+        );
 
         let held = &channels[0][FFT_SIZE * 2..];
         let rms = (held.iter().map(|x| x * x).sum::<f32>() / held.len() as f32).sqrt();
-        assert!(rms > 0.01, "frozen output disappeared after input stopped, rms={rms}");
+        assert!(
+            rms > 0.01,
+            "frozen output disappeared after input stopped, rms={rms}"
+        );
     }
 
     #[test]
@@ -1061,10 +1173,17 @@ mod tests {
         let mut silent_sc = vec![0.0_f32; len];
         let mut with_sc_channels: [&mut [f32]; 1] = [&mut with_sc];
         let sc_channels: [&mut [f32]; 1] = [&mut silent_sc];
-        sc_processor.process_block(&mut with_sc_channels, Some(&sc_channels), ProcessParams::default());
+        sc_processor.process_block(
+            &mut with_sc_channels,
+            Some(&sc_channels),
+            ProcessParams::default(),
+        );
 
         for (a, b) in no_sc_channels[0].iter().zip(with_sc_channels[0].iter()) {
-            assert!((a - b).abs() < 1.0e-6, "silent sidechain changed output: {a} vs {b}");
+            assert!(
+                (a - b).abs() < 1.0e-6,
+                "silent sidechain changed output: {a} vs {b}"
+            );
         }
     }
 
@@ -1087,14 +1206,92 @@ mod tests {
         processor.process_block(
             &mut main_channels,
             Some(&sc_channels),
-            ProcessParams { sc_boost_db: 18.0, sc_freq_smoothing: 0.25, ..Default::default() },
+            ProcessParams {
+                sc_boost_db: 18.0,
+                sc_freq_smoothing: 0.25,
+                ..Default::default()
+            },
         );
 
         let start = FFT_SIZE * 6;
         let analysed = &main_channels[0][start..];
         let a440 = sine_projection(analysed, 440.0, sample_rate, start);
         let a880 = sine_projection(analysed, 880.0, sample_rate, start);
-        assert!(a880 / a440 > 0.45, "sidechain did not boost matched 880 Hz enough: 440={a440}, 880={a880}");
+        assert!(
+            a880 / a440 > 0.45,
+            "sidechain did not boost matched 880 Hz enough: 440={a440}, 880={a880}"
+        );
+    }
+
+    #[test]
+    fn sidechain_boost_compensates_output_level() {
+        let sample_rate = 44_100.0;
+        let len = FFT_SIZE * 24;
+        let input: Vec<f32> = (0..len)
+            .map(|i| {
+                let t = i as f32 / sample_rate;
+                0.55 * (2.0 * PI * 440.0 * t).sin() + 0.12 * (2.0 * PI * 880.0 * t).sin()
+            })
+            .collect();
+
+        let mut dry_processor = SpectralFreeze::default();
+        dry_processor.prepare(sample_rate, 1, 0);
+        let mut dry = input.clone();
+        let mut dry_channels: [&mut [f32]; 1] = [&mut dry];
+        dry_processor.process_block(
+            &mut dry_channels,
+            None,
+            ProcessParams {
+                sc_boost_db: 0.0,
+                ..Default::default()
+            },
+        );
+
+        let mut boosted_processor = SpectralFreeze::default();
+        boosted_processor.prepare(sample_rate, 1, 1);
+        let mut boosted = input;
+        let mut sidechain = sine_buffer(880.0, 0.8, sample_rate, len);
+        let mut boosted_channels: [&mut [f32]; 1] = [&mut boosted];
+        let sc_channels: [&mut [f32]; 1] = [&mut sidechain];
+        boosted_processor.process_block(
+            &mut boosted_channels,
+            Some(&sc_channels),
+            ProcessParams {
+                sc_boost_db: 18.0,
+                sc_freq_smoothing: 0.25,
+                ..Default::default()
+            },
+        );
+
+        let start = FFT_SIZE * 6;
+        let dry_stable = &dry_channels[0][start..];
+        let boosted_stable = &boosted_channels[0][start..];
+        let dry_peak = dry_stable.iter().fold(0.0_f32, |peak, x| peak.max(x.abs()));
+        let boosted_peak = boosted_stable
+            .iter()
+            .fold(0.0_f32, |peak, x| peak.max(x.abs()));
+        let dry_rms =
+            (dry_stable.iter().map(|x| x * x).sum::<f32>() / dry_stable.len() as f32).sqrt();
+        let boosted_rms = (boosted_stable.iter().map(|x| x * x).sum::<f32>()
+            / boosted_stable.len() as f32)
+            .sqrt();
+        let dry_ratio = sine_projection(dry_stable, 880.0, sample_rate, start)
+            / sine_projection(dry_stable, 440.0, sample_rate, start);
+        let boosted_ratio = sine_projection(boosted_stable, 880.0, sample_rate, start)
+            / sine_projection(boosted_stable, 440.0, sample_rate, start);
+
+        assert!(
+            boosted_ratio > dry_ratio * 1.5,
+            "sidechain did not lift matched content: dry={dry_ratio}, boosted={boosted_ratio}"
+        );
+        assert!(
+            boosted_peak <= dry_peak * 1.05,
+            "sidechain overdrives output peak: dry={dry_peak}, boosted={boosted_peak}"
+        );
+        assert!(
+            boosted_rms <= dry_rms * 1.05,
+            "sidechain overdrives output rms: dry={dry_rms}, boosted={boosted_rms}"
+        );
     }
 
     #[test]
@@ -1105,7 +1302,14 @@ mod tests {
 
         let mut first = sine_buffer(330.0, 0.2, sample_rate, FFT_SIZE * 5);
         let mut channels: [&mut [f32]; 1] = [&mut first];
-        processor.process_block(&mut channels, None, ProcessParams { freeze: true, ..Default::default() });
+        processor.process_block(
+            &mut channels,
+            None,
+            ProcessParams {
+                freeze: true,
+                ..Default::default()
+            },
+        );
 
         let mut unfreeze = sine_buffer(880.0, 0.2, sample_rate, FFT_SIZE * 5);
         let mut channels: [&mut [f32]; 1] = [&mut unfreeze];
@@ -1113,13 +1317,23 @@ mod tests {
 
         let mut second = sine_buffer(880.0, 0.2, sample_rate, FFT_SIZE * 8);
         let mut channels: [&mut [f32]; 1] = [&mut second];
-        processor.process_block(&mut channels, None, ProcessParams { freeze: true, ..Default::default() });
+        processor.process_block(
+            &mut channels,
+            None,
+            ProcessParams {
+                freeze: true,
+                ..Default::default()
+            },
+        );
 
         let start = FFT_SIZE * 4;
         let analysed = &channels[0][start..];
         let a330 = sine_projection(analysed, 330.0, sample_rate, start);
         let a880 = sine_projection(analysed, 880.0, sample_rate, start);
-        assert!(a880 > a330 * 2.0, "second freeze edge did not recapture new tone: 330={a330}, 880={a880}");
+        assert!(
+            a880 > a330 * 2.0,
+            "second freeze edge did not recapture new tone: 330={a330}, 880={a880}"
+        );
     }
 
     #[test]
@@ -1135,10 +1349,17 @@ mod tests {
         processor.process_block(
             &mut main_channels,
             Some(&sc_channels),
-            ProcessParams { freeze: true, sc_boost_db: 9.0, ..Default::default() },
+            ProcessParams {
+                freeze: true,
+                sc_boost_db: 9.0,
+                ..Default::default()
+            },
         );
         let stable = &main_channels[0][FFT_SIZE * 4..];
         let rms = (stable.iter().map(|x| x * x).sum::<f32>() / stable.len() as f32).sqrt();
-        assert!(rms > 0.01, "freeze+sidechain startup produced no tone, rms={rms}");
+        assert!(
+            rms > 0.01,
+            "freeze+sidechain startup produced no tone, rms={rms}"
+        );
     }
 }
