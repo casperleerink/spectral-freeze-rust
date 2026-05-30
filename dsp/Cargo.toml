@@ -6,3 +6,4 @@ license.workspace = true
 
 [dependencies]
 rustfft = "6.4"
+serde = { version = "1", features = ["derive"] }
