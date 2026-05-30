@@ -10,12 +10,16 @@ pub(super) fn draw_source_panel(
     state: &mut InstrumentState,
     theme: &UiTheme,
 ) {
+    let panel_width = ui.available_width();
+
     egui::Frame::NONE
         .fill(theme.panel)
         .stroke(Stroke::new(1.0, theme.border))
         .corner_radius(12.0)
         .inner_margin(12.0)
         .show(ui, |ui| {
+            ui.set_min_width((panel_width - 24.0).max(0.0));
+            ui.set_height(170.0);
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new("Source Files / Load WAV")

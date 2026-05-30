@@ -68,6 +68,7 @@ pub(super) fn draw_pad_grid(
                                             theme.fg
                                         },
                                     ))
+                                    .truncate()
                                     .fill(fill)
                                     .stroke(Stroke::new(1.0, theme.border)),
                                 );
@@ -106,7 +107,7 @@ pub(super) fn draw_pad_grid(
 }
 
 fn short_name(name: &str) -> String {
-    const MAX: usize = 22;
+    const MAX: usize = 14;
     if name.chars().count() <= MAX {
         name.to_string()
     } else {

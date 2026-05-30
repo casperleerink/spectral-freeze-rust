@@ -1,6 +1,6 @@
 use super::{
-    bottom_panel::draw_bottom_panel, pad_grid::draw_pad_grid, pool_panel::draw_pool_panel,
-    source_panel::draw_source_panel, theme::UiTheme,
+    bottom_panel::draw_bottom_panel, filter_panel::draw_filter_panel, pad_grid::draw_pad_grid,
+    pool_panel::draw_pool_panel, source_panel::draw_source_panel, theme::UiTheme,
 };
 use crate::params::SpectralFreezeParams;
 use crate::source::loader;
@@ -29,36 +29,54 @@ pub(crate) fn draw_editor(
     sync_runtime_source_metadata(&mut runtime, &mut state);
     refresh_audition(&mut runtime, &state);
 
-    ui.vertical(|ui| {
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new("SPECTRAL FREEZE INSTRUMENT")
-                    .size(19.0)
-                    .strong()
-                    .color(theme.fg),
-            );
-            ui.label(
-                RichText::new("WAV → FREEZE POOL → 16 MIDI PADS")
-                    .size(11.0)
-                    .color(theme.fg_dim),
-            );
+    egui::Frame::NONE
+        .inner_margin(egui::Margin::same(16))
+        .show(ui, |ui| {
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("SPECTRAL FREEZE INSTRUMENT")
+                            .size(19.0)
+                            .strong()
+                            .color(theme.fg),
+                    );
+                    ui.label(
+                        RichText::new("WAV → FREEZE POOL → 16 MIDI PADS")
+                            .size(11.0)
+                            .color(theme.fg_dim),
+                    );
+                });
+
+                ui.horizontal_top(|ui| {
+                    let spacing = ui.spacing().item_spacing.x;
+                    let filter_width = 178.0;
+                    let source_width = (ui.available_width() - filter_width - spacing).max(360.0);
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(source_width, 0.0),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| draw_source_panel(ui, &mut runtime, &mut state, &theme),
+                    );
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(filter_width, 0.0),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| draw_filter_panel(ui, &mut state, &theme),
+                    );
+                });
+
+                ui.columns(2, |columns| {
+                    draw_pool_panel(&mut columns[0], &mut runtime, &mut state, &theme);
+                    draw_pad_grid(
+                        &mut columns[1],
+                        &mut runtime,
+                        &mut state,
+                        activity.load(),
+                        &theme,
+                    );
+                });
+
+                draw_bottom_panel(ui, setter, params, &mut state, &theme);
+            });
         });
-
-        draw_source_panel(ui, &mut runtime, &mut state, &theme);
-
-        ui.columns(2, |columns| {
-            draw_pool_panel(&mut columns[0], &mut runtime, &mut state, &theme);
-            draw_pad_grid(
-                &mut columns[1],
-                &mut runtime,
-                &mut state,
-                activity.load(),
-                &theme,
-            );
-        });
-
-        draw_bottom_panel(ui, setter, params, &mut state, &theme);
-    });
 
     refresh_audition(&mut runtime, &state);
 }

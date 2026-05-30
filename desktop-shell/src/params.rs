@@ -48,7 +48,7 @@ impl Default for SpectralFreezeParams {
         let db_from_string = Arc::new(|text: &str| parse_unit_float(text, "dB"));
 
         Self {
-            editor_state: EguiState::from_size(980, 680),
+            editor_state: EguiState::from_size(980, 720),
             instrument_state: Arc::new(Mutex::new(InstrumentState::default())),
             attack: FloatParam::new(
                 INSTRUMENT_PARAMS[PARAM_ATTACK].name,

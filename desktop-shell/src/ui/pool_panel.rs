@@ -45,6 +45,7 @@ pub(super) fn draw_pool_panel(
                                             if selected { Color32::BLACK } else { theme.fg },
                                         ))
                                         .fill(if selected { theme.accent } else { theme.panel2 })
+                                        .truncate()
                                         .min_size(Vec2::new(
                                             (ui.available_width() - 26.0).max(0.0),
                                             24.0,
