@@ -104,4 +104,4 @@ class SpectralFreezeWamProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor("com.learning.spectral-freeze", SpectralFreezeWamProcessor);
+registerProcessor("com.cleerink.spectral-freeze", SpectralFreezeWamProcessor);

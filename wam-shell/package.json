@@ -13,6 +13,7 @@
   },
   "type": "module",
   "license": "MIT OR Apache-2.0",
+  "author": "Casper Leerink",
   "files": [
     "dist",
     "descriptor.json",

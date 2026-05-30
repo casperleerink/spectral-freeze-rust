@@ -1,7 +1,7 @@
 {
-  "identifier": "com.learning.spectral-freeze",
+  "identifier": "com.cleerink.spectral-freeze",
   "name": "Spectral Freeze",
-  "vendor": "Learning",
+  "vendor": "Casper Leerink",
   "version": "0.2.2",
   "apiVersion": "2.0.0",
   "isInstrument": false,

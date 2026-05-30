@@ -1,4 +1,4 @@
-name: Build desktop plugins
+name: Build desktop builds
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 jobs:
-  desktop-plugins:
+  desktop-builds:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -41,18 +41,18 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y zip libgl1-mesa-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev libxkbcommon-dev
+          sudo apt-get install -y zip pkg-config libasound2-dev libjack-jackd2-dev libgl1-mesa-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev libxkbcommon-dev
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust-targets }}
 
-      - name: Build CLAP and VST3 bundles
+      - name: Build CLAP, VST3, and standalone bundles
         shell: bash
-        run: cargo run -p xtask -- ${{ matrix.bundle-command }} spectral-freeze-clap --release
+        run: cargo run -p xtask -- ${{ matrix.bundle-command }} spectral-freeze --release
 
-      - name: Archive plugin bundles
+      - name: Archive desktop bundles
         shell: bash
         run: |
           mkdir -p release
@@ -63,13 +63,13 @@ jobs:
             zip -r "../../release/spectral-freeze-${{ matrix.artifact-suffix }}.zip" .
           fi
 
-      - name: Upload plugin bundles as CI artifact
+      - name: Upload desktop bundles as CI artifact
         uses: actions/upload-artifact@v4
         with:
           name: spectral-freeze-${{ matrix.artifact-suffix }}
           path: release/spectral-freeze-${{ matrix.artifact-suffix }}.zip
 
-      - name: Attach plugin bundles to GitHub Release
+      - name: Attach desktop bundles to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:

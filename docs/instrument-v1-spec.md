@@ -1,4 +1,4 @@
-# Spectral Freeze Instrument v1 Spec
+# Spectral Freeze v1 Instrument Spec
 
 ## Goal
 
