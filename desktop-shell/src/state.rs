@@ -2,7 +2,7 @@ use dsp::{CapturedFreeze, PAD_COUNT};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) enum Selection {
@@ -21,6 +21,8 @@ impl Default for Selection {
 pub(crate) struct InstrumentState {
     pub(crate) pool: Vec<CapturedFreeze>,
     pub(crate) pad_assignments: [Option<usize>; PAD_COUNT],
+    #[serde(skip)]
+    pub(crate) audio_revision: u64,
     pub(crate) source_path: Option<String>,
     pub(crate) source_cursor_sample: usize,
     pub(crate) source_sample_rate: f32,
@@ -33,12 +35,19 @@ impl Default for InstrumentState {
         Self {
             pool: Vec::new(),
             pad_assignments: [None; PAD_COUNT],
+            audio_revision: 0,
             source_path: None,
             source_cursor_sample: 0,
             source_sample_rate: 44_100.0,
             contextual_filter: 0.0,
             selection: Selection::Waveform,
         }
+    }
+}
+
+impl InstrumentState {
+    pub(crate) fn mark_audio_state_changed(&mut self) {
+        self.audio_revision = self.audio_revision.wrapping_add(1);
     }
 }
 
@@ -66,8 +75,9 @@ pub(crate) struct EditorRuntime {
     pub(crate) file_status: Option<String>,
     pub(crate) pending_source_rx: Option<mpsc::Receiver<Option<Result<LoadedSource, String>>>>,
     pub(crate) audition_enabled: bool,
-    pub(crate) audition_item: Option<CapturedFreeze>,
+    pub(crate) audition_item: Option<Arc<CapturedFreeze>>,
     pub(crate) audition_revision: u64,
+    pub(crate) editor_frame_generation: u64,
     pub(crate) mouse_pad_gates: [bool; PAD_COUNT],
     pub(crate) drag_pool_item: Option<usize>,
 }

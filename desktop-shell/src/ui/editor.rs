@@ -23,6 +23,7 @@ pub(crate) fn draw_editor(
     ui.spacing_mut().item_spacing = Vec2::new(10.0, 8.0);
 
     let mut runtime = runtime.lock().unwrap();
+    runtime.editor_frame_generation = runtime.editor_frame_generation.wrapping_add(1);
     let mut state = params.instrument_state.lock().unwrap();
     loader::poll(&mut runtime, &mut state);
     sync_runtime_source_metadata(&mut runtime, &mut state);
@@ -94,7 +95,8 @@ fn refresh_audition(runtime: &mut EditorRuntime, state: &InstrumentState) {
         state.source_cursor_sample,
         Some(&source.path.to_string_lossy()),
         state.contextual_filter,
-    );
+    )
+    .map(Arc::new);
     let changed = match (&runtime.audition_item, &next) {
         (Some(a), Some(b)) => {
             a.cursor_sample != b.cursor_sample

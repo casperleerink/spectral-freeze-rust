@@ -45,15 +45,20 @@ pub(super) fn draw_pool_panel(
                                             if selected { Color32::BLACK } else { theme.fg },
                                         ))
                                         .fill(if selected { theme.accent } else { theme.panel2 })
-                                        .min_size(
-                                            Vec2::new((ui.available_width() - 26.0).max(0.0), 24.0),
-                                        ),
+                                        .min_size(Vec2::new(
+                                            (ui.available_width() - 26.0).max(0.0),
+                                            24.0,
+                                        ))
+                                        .sense(egui::Sense::click_and_drag()),
                                     );
                                 if response.clicked() {
                                     state.selection = Selection::Pool(idx);
                                 }
                                 if response.drag_started() {
                                     runtime.drag_pool_item = Some(idx);
+                                }
+                                if response.dragged() {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                                 }
                                 if ui.small_button("×").clicked() {
                                     delete_idx = Some(idx);
@@ -75,6 +80,7 @@ pub(super) fn draw_pool_panel(
                                     _ => {}
                                 }
                             }
+                            state.mark_audio_state_changed();
                             state.selection = Selection::Waveform;
                         }
                     });

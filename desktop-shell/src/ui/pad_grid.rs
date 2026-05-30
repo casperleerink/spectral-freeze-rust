@@ -38,10 +38,13 @@ pub(super) fn draw_pad_grid(
                                     state.pad_assignments[pad].and_then(|i| state.pool.get(i));
                                 let selected =
                                     matches!(state.selection, Selection::Pad(p) if p == pad);
+                                let is_drop_target = runtime.drag_pool_item.is_some();
                                 let fill = if active[pad] || runtime.mouse_pad_gates[pad] {
                                     theme.accent
                                 } else if selected {
                                     Color32::from_rgb(82, 105, 128)
+                                } else if is_drop_target {
+                                    theme.panel2.linear_multiply(1.35)
                                 } else if assigned.is_some() {
                                     theme.panel2
                                 } else {
@@ -73,10 +76,13 @@ pub(super) fn draw_pad_grid(
                                 if response.clicked() {
                                     state.selection = Selection::Pad(pad);
                                 }
-                                if response.hovered() && ui.input(|i| i.pointer.any_released()) {
+                                if response.contains_pointer()
+                                    && ui.input(|i| i.pointer.any_released())
+                                {
                                     if let Some(idx) = runtime.drag_pool_item.take() {
                                         if idx < state.pool.len() {
                                             state.pad_assignments[pad] = Some(idx);
+                                            state.mark_audio_state_changed();
                                             state.selection = Selection::Pad(pad);
                                         }
                                     }
@@ -84,6 +90,7 @@ pub(super) fn draw_pad_grid(
                                 response.context_menu(|ui| {
                                     if ui.button("Clear pad").clicked() {
                                         state.pad_assignments[pad] = None;
+                                        state.mark_audio_state_changed();
                                         ui.close_menu();
                                     }
                                 });

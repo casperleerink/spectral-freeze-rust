@@ -1176,21 +1176,49 @@ pub fn capture_freeze_from_audio(
     let mut channels = Vec::with_capacity(source_channels.len().min(2));
     let mut scratch = [Complex32::new(0.0, 0.0); FFT_SIZE];
     for src in source_channels.iter().take(2) {
-        for i in 0..FFT_SIZE {
-            let sample = src.get(frame_start + i).copied().unwrap_or(0.0);
-            scratch[i] = Complex32::new(sample * window[i], 0.0);
-        }
-        fft.process(&mut scratch);
-
-        let mut mag = vec![0.0_f32; NUM_BINS];
+        let mut mag_sum = vec![0.0_f32; NUM_BINS];
         let mut phase = vec![0.0_f32; NUM_BINS];
         let mut phase_advance = vec![0.0_f32; NUM_BINS];
-        for k in 0..NUM_BINS {
-            let c = scratch[k];
-            mag[k] = c.norm();
-            phase[k] = c.im.atan2(c.re);
-            phase_advance[k] = 2.0 * PI * k as f32 * HOP_SIZE as f32 / FFT_SIZE as f32;
+        let mut last_phase = vec![0.0_f32; NUM_BINS];
+        let mut has_last_phase = false;
+
+        for frame_idx in 0..MAG_HISTORY_SIZE {
+            let lookback_hops = MAG_HISTORY_SIZE - 1 - frame_idx;
+            let analysis_start = frame_start.saturating_sub(lookback_hops * HOP_SIZE);
+            for i in 0..FFT_SIZE {
+                let sample = src.get(analysis_start + i).copied().unwrap_or(0.0);
+                scratch[i] = Complex32::new(sample * window[i], 0.0);
+            }
+            fft.process(&mut scratch);
+
+            for k in 0..NUM_BINS {
+                let c = scratch[k];
+                let bin_phase_advance = 2.0 * PI * k as f32 * HOP_SIZE as f32 / FFT_SIZE as f32;
+                let bin_phase = c.im.atan2(c.re);
+                mag_sum[k] += c.norm();
+
+                if has_last_phase {
+                    let mut deviation = bin_phase - last_phase[k] - bin_phase_advance;
+                    while deviation > PI {
+                        deviation -= 2.0 * PI;
+                    }
+                    while deviation < -PI {
+                        deviation += 2.0 * PI;
+                    }
+                    let measured_advance = bin_phase_advance + deviation;
+                    phase_advance[k] = 0.65 * phase_advance[k] + 0.35 * measured_advance;
+                } else {
+                    phase_advance[k] = bin_phase_advance;
+                }
+
+                last_phase[k] = bin_phase;
+                phase[k] = bin_phase;
+            }
+            has_last_phase = true;
         }
+
+        let history_gain = (MAG_HISTORY_SIZE as f32).recip();
+        let mag = mag_sum.into_iter().map(|m| m * history_gain).collect();
         channels.push(FrozenChannelData {
             mag,
             phase,
@@ -2066,6 +2094,29 @@ mod tests {
         assert_eq!(item.cursor_sample, FFT_SIZE);
         assert!(item.name.contains("vocal.wav @"));
         assert!((item.filter - 0.25).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn captured_freeze_tracks_source_phase_advance() {
+        let sample_rate = 44_100.0;
+        let frequency = 440.0;
+        let source = vec![sine_buffer(frequency, 0.3, sample_rate, FFT_SIZE * 8)];
+        let item = capture_freeze_from_audio(&source, sample_rate, FFT_SIZE * 4, None, 0.0)
+            .expect("capture should succeed");
+
+        let dominant_bin = item.channels[0]
+            .mag
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(idx, _)| idx)
+            .unwrap();
+        let expected = 2.0 * PI * frequency * HOP_SIZE as f32 / sample_rate;
+        let actual = item.channels[0].phase_advance[dominant_bin];
+        assert!(
+            (actual - expected).abs() < 0.25,
+            "captured phase advance should follow source pitch: bin={dominant_bin}, expected={expected}, actual={actual}"
+        );
     }
 
     #[test]

@@ -13,3 +13,6 @@ dsp = { path = "dsp" }
 
 [patch."https://github.com/BillyDM/egui-baseview.git"]
 egui-baseview = { path = "vendor/egui-baseview" }
+
+[patch."https://github.com/RustAudio/baseview.git"]
+baseview = { path = "vendor/baseview" }

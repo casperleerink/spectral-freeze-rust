@@ -52,6 +52,7 @@ pub(super) fn draw_source_panel(
                             state.contextual_filter,
                         ) {
                             state.pool.push(item);
+                            state.mark_audio_state_changed();
                             state.selection = Selection::Pool(state.pool.len() - 1);
                         }
                     }

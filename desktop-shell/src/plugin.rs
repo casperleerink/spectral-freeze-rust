@@ -1,7 +1,7 @@
 use crate::params::SpectralFreezeParams;
 use crate::state::{EditorRuntime, PadActivityAtomics};
 use crate::ui::draw_editor;
-use dsp::{FreezeInstrument, InstrumentProcessParams, PAD_COUNT, pad_note};
+use dsp::{CapturedFreeze, FreezeInstrument, InstrumentProcessParams, PAD_COUNT, pad_note};
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui::CentralPanel};
 use std::num::NonZeroU32;
@@ -18,7 +18,17 @@ pub struct SpectralFreezePlugin {
     runtime: Arc<Mutex<EditorRuntime>>,
     activity: Arc<PadActivityAtomics>,
     previous_mouse_gates: [bool; PAD_COUNT],
+    cached_mouse_gates: [bool; PAD_COUNT],
+    cached_audition_enabled: bool,
+    cached_audition_item: Option<Arc<CapturedFreeze>>,
+    cached_audition_revision: u64,
+    cached_editor_frame_generation: u64,
+    cached_pool: Vec<CapturedFreeze>,
+    cached_pad_assignments: [Option<usize>; PAD_COUNT],
+    cached_audio_state_revision: u64,
     last_audition_revision: u64,
+    last_editor_frame_generation: u64,
+    blocks_since_editor_frame: u32,
 }
 
 impl Default for SpectralFreezePlugin {
@@ -30,7 +40,17 @@ impl Default for SpectralFreezePlugin {
             runtime: Arc::new(Mutex::new(EditorRuntime::default())),
             activity: Arc::new(PadActivityAtomics::default()),
             previous_mouse_gates: [false; PAD_COUNT],
+            cached_mouse_gates: [false; PAD_COUNT],
+            cached_audition_enabled: false,
+            cached_audition_item: None,
+            cached_audition_revision: 0,
+            cached_editor_frame_generation: 0,
+            cached_pool: Vec::new(),
+            cached_pad_assignments: [None; PAD_COUNT],
+            cached_audio_state_revision: u64::MAX,
             last_audition_revision: 0,
+            last_editor_frame_generation: 0,
+            blocks_since_editor_frame: u32::MAX,
         }
     }
 }
@@ -140,7 +160,17 @@ impl Plugin for SpectralFreezePlugin {
         self.instrument.reset();
         self.audition.reset();
         self.previous_mouse_gates = [false; PAD_COUNT];
+        self.cached_mouse_gates = [false; PAD_COUNT];
+        self.cached_audition_enabled = false;
+        self.cached_audition_item = None;
+        self.cached_audition_revision = 0;
+        self.cached_editor_frame_generation = 0;
+        self.cached_pool.clear();
+        self.cached_pad_assignments = [None; PAD_COUNT];
+        self.cached_audio_state_revision = u64::MAX;
         self.last_audition_revision = 0;
+        self.last_editor_frame_generation = 0;
+        self.blocks_since_editor_frame = u32::MAX;
     }
 
     fn process(
@@ -151,22 +181,47 @@ impl Plugin for SpectralFreezePlugin {
     ) -> ProcessStatus {
         let params = self.current_params();
 
-        let (mouse_gates, audition_enabled, audition_item, audition_revision) = {
-            let runtime = self.runtime.lock().unwrap();
-            (
-                runtime.mouse_pad_gates,
-                runtime.audition_enabled,
-                runtime.audition_item.clone(),
-                runtime.audition_revision,
-            )
-        };
+        if let Ok(runtime) = self.runtime.try_lock() {
+            self.cached_mouse_gates = runtime.mouse_pad_gates;
+            self.cached_audition_enabled = runtime.audition_enabled;
+            self.cached_audition_item = runtime.audition_item.clone();
+            self.cached_audition_revision = runtime.audition_revision;
+            self.cached_editor_frame_generation = runtime.editor_frame_generation;
+        }
+        if let Ok(state) = self.params.instrument_state.try_lock() {
+            if state.audio_revision != self.cached_audio_state_revision
+                || state.pool.len() != self.cached_pool.len()
+                || state.pad_assignments != self.cached_pad_assignments
+            {
+                self.cached_pool = state.pool.clone();
+                self.cached_pad_assignments = state.pad_assignments;
+                self.cached_audio_state_revision = state.audio_revision;
+            }
+        }
 
-        let state = self.params.instrument_state.lock().unwrap();
+        let mouse_gates = self.cached_mouse_gates;
+        let audition_enabled = self.cached_audition_enabled;
+        let audition_item = self.cached_audition_item.clone();
+        let audition_revision = self.cached_audition_revision;
+        let editor_frame_generation = self.cached_editor_frame_generation;
+
+        if editor_frame_generation != self.last_editor_frame_generation {
+            self.last_editor_frame_generation = editor_frame_generation;
+            self.blocks_since_editor_frame = 0;
+        } else {
+            self.blocks_since_editor_frame = self.blocks_since_editor_frame.saturating_add(1);
+        }
+        let editor_recently_active = self.blocks_since_editor_frame < 100;
 
         for pad in 0..PAD_COUNT {
             if mouse_gates[pad] && !self.previous_mouse_gates[pad] {
-                self.instrument
-                    .note_on(pad_note(pad), 0, 1.0, &state.pool, &state.pad_assignments);
+                self.instrument.note_on(
+                    pad_note(pad),
+                    0,
+                    1.0,
+                    &self.cached_pool,
+                    &self.cached_pad_assignments,
+                );
             } else if !mouse_gates[pad] && self.previous_mouse_gates[pad] {
                 self.instrument.note_off(pad_note(pad), 0, params);
             }
@@ -185,8 +240,8 @@ impl Plugin for SpectralFreezePlugin {
                         note,
                         channel,
                         velocity,
-                        &state.pool,
-                        &state.pad_assignments,
+                        &self.cached_pool,
+                        &self.cached_pad_assignments,
                     );
                 }
                 NoteEvent::NoteOn { note, channel, .. }
@@ -213,11 +268,11 @@ impl Plugin for SpectralFreezePlugin {
         let sidechain = aux.inputs.first_mut().map(|buffer| buffer.as_slice());
         let mut main = buffer.as_slice();
         self.instrument
-            .process_block(&mut main, sidechain.as_deref(), params, &state.pool);
+            .process_block(&mut main, sidechain.as_deref(), params, &self.cached_pool);
 
-        if audition_enabled && self.params.editor_state.is_open() {
+        if audition_enabled && editor_recently_active {
             if let Some(item) = audition_item {
-                let pool = [item];
+                let pool = std::slice::from_ref(item.as_ref());
                 let assignments = [
                     Some(0),
                     None,
