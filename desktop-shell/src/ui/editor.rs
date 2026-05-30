@@ -45,9 +45,15 @@ pub(crate) fn draw_editor(
 
         draw_source_panel(ui, &mut runtime, &mut state, &theme);
 
-        ui.horizontal(|ui| {
-            draw_pool_panel(ui, &mut runtime, &mut state, &theme);
-            draw_pad_grid(ui, &mut runtime, &mut state, activity.load(), &theme);
+        ui.columns(2, |columns| {
+            draw_pool_panel(&mut columns[0], &mut runtime, &mut state, &theme);
+            draw_pad_grid(
+                &mut columns[1],
+                &mut runtime,
+                &mut state,
+                activity.load(),
+                &theme,
+            );
         });
 
         draw_bottom_panel(ui, setter, params, &mut state, &theme);
