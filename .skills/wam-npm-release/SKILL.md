@@ -17,7 +17,7 @@ Use this skill for releases of the `spectral-freeze-wam` npm package from this r
 
 ## Release checklist
 
-1. Bump `wam-shell/package.json` `version`.
+1. Bump all shared release versions with `node scripts/set-version.mjs X.Y.Z`.
 2. Add a short release note in root `README.md`.
 3. Verify locally:
    ```sh
@@ -34,7 +34,7 @@ Use this skill for releases of the `spectral-freeze-wam` npm package from this r
 6. Tag and push:
    ```sh
    git tag vX.Y.Z
-   git push origin vX.Y.Z
+   git push origin main vX.Y.Z
    ```
 
 ## Important gotchas
@@ -46,5 +46,6 @@ Use this skill for releases of the `spectral-freeze-wam` npm package from this r
   ```
 - The workflow uses Node 24 for Trusted Publishing.
 - `wam-shell/package.json` must include repository metadata matching the GitHub repo provenance.
+- Desktop CLAP/VST3 releases are built by `.github/workflows/plugin-release.yml` from the same `vX.Y.Z` tag.
 
 If publishing fails, read `references/troubleshooting.md`.

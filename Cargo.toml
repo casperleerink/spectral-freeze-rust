@@ -1,12 +1,18 @@
 [workspace]
-members = ["dsp", "clap-shell", "wam-shell"]
+members = ["dsp", "desktop-shell", "wam-shell", "xtask"]
 resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.2.0"
+version = "0.2.2"
 license = "MIT OR Apache-2.0"
-authors = ["Learning"]
+authors = ["Casper Leerink"]
 
 [workspace.dependencies]
 dsp = { path = "dsp" }
+
+[patch."https://github.com/BillyDM/egui-baseview.git"]
+egui-baseview = { path = "vendor/egui-baseview" }
+
+[patch."https://github.com/RustAudio/baseview.git"]
+baseview = { path = "vendor/baseview" }

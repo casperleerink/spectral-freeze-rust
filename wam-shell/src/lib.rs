@@ -4,7 +4,7 @@
 //! `wasm-bindgen` boundary on the audio thread; the AudioWorklet loads the
 //! `.wasm` with `WebAssembly.instantiate()` and calls these functions directly.
 
-use dsp::{ProcessParams, SpectralFreeze, PARAMETER_MANIFEST_JSON, PARAMS};
+use dsp::{PARAMETER_MANIFEST_JSON, PARAMS, ProcessParams, SpectralFreeze};
 use std::slice;
 
 const MAX_CHANNELS: usize = 2;
@@ -21,7 +21,12 @@ pub struct WasmProcessor {
 }
 
 impl WasmProcessor {
-    fn new(sample_rate: f32, main_channels: usize, sidechain_channels: usize, max_block: usize) -> Self {
+    fn new(
+        sample_rate: f32,
+        main_channels: usize,
+        sidechain_channels: usize,
+        max_block: usize,
+    ) -> Self {
         let main_channels = main_channels.clamp(1, MAX_CHANNELS);
         let sidechain_channels = sidechain_channels.min(MAX_CHANNELS);
         let max_block = max_block.max(DEFAULT_MAX_BLOCK);
@@ -38,7 +43,13 @@ impl WasmProcessor {
         }
     }
 
-    fn process(&mut self, input_ptr: *const f32, output_ptr: *mut f32, sidechain_ptr: *const f32, frames: usize) -> i32 {
+    fn process(
+        &mut self,
+        input_ptr: *const f32,
+        output_ptr: *mut f32,
+        sidechain_ptr: *const f32,
+        frames: usize,
+    ) -> i32 {
         if input_ptr.is_null() || output_ptr.is_null() || frames > self.max_block {
             return 0;
         }
@@ -53,7 +64,8 @@ impl WasmProcessor {
 
         let sc_active = !sidechain_ptr.is_null() && self.sidechain_channels > 0;
         if sc_active {
-            let sidechain = unsafe { slice::from_raw_parts(sidechain_ptr, self.sidechain_channels * frames) };
+            let sidechain =
+                unsafe { slice::from_raw_parts(sidechain_ptr, self.sidechain_channels * frames) };
             for ch in 0..self.sidechain_channels {
                 let src = &sidechain[ch * frames..(ch + 1) * frames];
                 self.sidechain_buffers[ch][..frames].copy_from_slice(src);
@@ -62,7 +74,14 @@ impl WasmProcessor {
 
         let params = ProcessParams::from_values(self.params);
 
-        match (self.main_channels, if sc_active { self.sidechain_channels } else { 0 }) {
+        match (
+            self.main_channels,
+            if sc_active {
+                self.sidechain_channels
+            } else {
+                0
+            },
+        ) {
             (1, 0) => {
                 let mut main: [&mut [f32]; 1] = [&mut self.main_buffers[0][..frames]];
                 self.dsp.process_block(&mut main, None, params);
@@ -109,7 +128,12 @@ impl WasmProcessor {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn sf_create(sample_rate: f32, main_channels: u32, sidechain_channels: u32, max_block: u32) -> *mut WasmProcessor {
+pub extern "C" fn sf_create(
+    sample_rate: f32,
+    main_channels: u32,
+    sidechain_channels: u32,
+    max_block: u32,
+) -> *mut WasmProcessor {
     Box::into_raw(Box::new(WasmProcessor::new(
         sample_rate,
         main_channels as usize,
@@ -121,7 +145,9 @@ pub extern "C" fn sf_create(sample_rate: f32, main_channels: u32, sidechain_chan
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sf_destroy(ptr: *mut WasmProcessor) {
     if !ptr.is_null() {
-        unsafe { drop(Box::from_raw(ptr)); }
+        unsafe {
+            drop(Box::from_raw(ptr));
+        }
     }
 }
 
@@ -209,7 +235,9 @@ pub extern "C" fn sf_alloc_f32(len: usize) -> *mut f32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sf_free_f32(ptr: *mut f32, len: usize) {
     if !ptr.is_null() {
-        unsafe { drop(Vec::from_raw_parts(ptr, 0, len)); }
+        unsafe {
+            drop(Vec::from_raw_parts(ptr, 0, len));
+        }
     }
 }
 
@@ -222,7 +250,10 @@ mod tests {
         let mut processor = WasmProcessor::new(48_000.0, 2, 0, 128);
         let input = vec![0.0_f32; 256];
         let mut output = vec![1.0_f32; 256];
-        assert_eq!(processor.process(input.as_ptr(), output.as_mut_ptr(), std::ptr::null(), 128), 1);
+        assert_eq!(
+            processor.process(input.as_ptr(), output.as_mut_ptr(), std::ptr::null(), 128),
+            1
+        );
         assert!(output.iter().all(|x| *x == 0.0));
     }
 }

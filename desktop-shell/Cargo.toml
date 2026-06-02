@@ -1,0 +1,27 @@
+[package]
+name = "spectral-freeze"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+autobins = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "spectral_freeze"
+path = "src/main.rs"
+
+[dependencies]
+dsp.workspace = true
+hound = "3.5"
+cpal = "0.15"
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["standalone"] }
+pollster = "0.4"
+nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+
+[features]
+default = []

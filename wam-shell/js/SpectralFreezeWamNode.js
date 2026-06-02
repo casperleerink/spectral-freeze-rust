@@ -54,7 +54,7 @@
  * @property {() => number} sf_parameter_manifest_len
  */
 
-const PROCESSOR_NAME = "com.learning.spectral-freeze";
+const PROCESSOR_NAME = "com.cleerink.spectral-freeze";
 const RING_HEADER_I32S = 2;
 const RING_READ = 0;
 const RING_WRITE = 1;
@@ -64,7 +64,7 @@ const EVENT_U32S = 2;
 export const descriptor = {
   identifier: PROCESSOR_NAME,
   name: "Spectral Freeze",
-  vendor: "Learning",
+  vendor: "Casper Leerink",
   version: "0.2.2",
   apiVersion: "2.0.0",
   isInstrument: false,
