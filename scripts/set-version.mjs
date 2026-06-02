@@ -22,10 +22,20 @@ const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
 packageJson.version = version;
 writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 
+const packageLockPath = 'wam-shell/package-lock.json';
+const packageLock = JSON.parse(readFileSync(packageLockPath, 'utf8'));
+packageLock.version = version;
+if (packageLock.packages?.['']) {
+  packageLock.packages[''].version = version;
+}
+writeFileSync(packageLockPath, `${JSON.stringify(packageLock, null, 2)}\n`);
+
 const descriptorPath = 'wam-shell/descriptor.json';
 const descriptor = JSON.parse(readFileSync(descriptorPath, 'utf8'));
 descriptor.version = version;
 writeFileSync(descriptorPath, `${JSON.stringify(descriptor, null, 2)}\n`);
+
+replace('wam-shell/js/SpectralFreezeWamNode.js', /^\s+version: ".*",$/m, `  version: "${version}",`);
 
 execFileSync('cargo', ['metadata', '--format-version', '1'], { stdio: 'ignore' });
 console.log(`Set release version to ${version}`);

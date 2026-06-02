@@ -65,7 +65,7 @@ export const descriptor = {
   identifier: PROCESSOR_NAME,
   name: "Spectral Freeze",
   vendor: "Casper Leerink",
-  version: "0.2.2",
+  version: "0.3.0",
   apiVersion: "2.0.0",
   isInstrument: false,
   hasAudioInput: true,
