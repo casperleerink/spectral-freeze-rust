@@ -144,10 +144,6 @@ Notes sustain indefinitely while held, then release on note-off.
 Keep these global controls from the current effect where applicable:
 
 - Organic: global, same default as current effect (0%)
-- SC Boost: global, host-automatable
-- SC Smooth: global, host-automatable
-
-Sidechain should behave like a built-in global spectral effect/enhancement stage on the instrument output rather than per-pad sidechain processing.
 
 Omit global output/gain for v1. No automatic loudness normalization in v1.
 
@@ -157,7 +153,7 @@ Save with plugin state:
 
 - Freeze Pool items including embedded spectral data and item Filter values
 - Pad assignments referencing pool items
-- global ADSR/Organic/SC parameter values
+- global ADSR/Organic parameter values
 - source path/cursor metadata where useful
 
 Do not embed full source audio files.

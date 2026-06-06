@@ -1,5 +1,5 @@
 /**
- * @typedef {"freeze" | "filter" | "scBoost" | "scFreqSmoothing" | "organic"} SpectralFreezeParameterId
+ * @typedef {"freeze" | "filter" | "organic"} SpectralFreezeParameterId
  */
 
 /**
@@ -33,7 +33,6 @@
  * @property {SpectralFreezeParameterInfo[]=} parameterInfo
  * @property {number=} parameterRingCapacity
  * @property {number=} mainChannels
- * @property {number=} sidechainChannels
  * @property {number=} maxBlock
  */
 
@@ -43,7 +42,6 @@
  * @property {SharedArrayBuffer} parameterRing
  * @property {SpectralFreezeParameterInfo[]} parameterInfo
  * @property {number=} mainChannels
- * @property {number=} sidechainChannels
  * @property {number=} maxBlock
  */
 
@@ -79,12 +77,12 @@ export class SpectralFreezeWamNode extends AudioWorkletNode {
    * @param {SpectralFreezeWamNodeOptions} options
    */
   constructor(audioContext, options) {
-    const { wasmBytes, parameterRing, mainChannels = 2, sidechainChannels = 0, maxBlock = 128 } = options;
+    const { wasmBytes, parameterRing, mainChannels = 2, maxBlock = 128 } = options;
     super(audioContext, PROCESSOR_NAME, {
-      numberOfInputs: sidechainChannels > 0 ? 2 : 1,
+      numberOfInputs: 1,
       numberOfOutputs: 1,
       outputChannelCount: [mainChannels],
-      processorOptions: { wasmBytes, parameterRing, mainChannels, sidechainChannels, maxBlock },
+      processorOptions: { wasmBytes, parameterRing, mainChannels, maxBlock },
     });
 
     /** @type {SpectralFreezeParameterInfo[]} */
@@ -160,7 +158,6 @@ export class SpectralFreezeWam {
       parameterRing,
       parameterInfo,
       mainChannels: options.mainChannels ?? 2,
-      sidechainChannels: options.sidechainChannels ?? 0,
       maxBlock: options.maxBlock ?? 128,
     });
 

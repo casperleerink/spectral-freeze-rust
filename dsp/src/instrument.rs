@@ -1,65 +1,41 @@
 use crate::clamp;
 use crate::constants::*;
-use crate::params::{
-    PARAM_ORGANIC, PARAM_SC_BOOST, PARAM_SC_FREQ_SMOOTHING, PARAMS, ParamInfo, ParamKind,
-    ProcessParams,
-};
+use crate::params::{PARAM_ORGANIC, PARAMS, ParamInfo, ParamKind};
 use crate::processor::{
-    SpectralFreeze, apply_synthesis_window, normalize_inverse_fft, rebuild_conjugate_mirror,
+    apply_organic_saturation, apply_organic_spectral_processing, apply_synthesis_window,
+    normalize_inverse_fft, rebuild_conjugate_mirror,
 };
 use crate::random::JuceRandom;
+use crate::state::{OrganicAmState, OrganicScratch};
 use crate::stft::{calculate_window_gain, fill_hann_window, phase_advance_for_bin};
 use rustfft::{Fft, FftPlanner, num_complex::Complex32};
 use std::f32::consts::PI;
 use std::sync::Arc;
 
 pub const PAD_COUNT: usize = 16;
-pub const MAX_INSTRUMENT_VOICES: usize = 16;
 pub const FIRST_PAD_MIDI_NOTE: u8 = 36; // C1 through D#2
 
-pub const PARAM_ATTACK: usize = 0;
-pub const PARAM_DECAY: usize = 1;
-pub const PARAM_SUSTAIN: usize = 2;
-pub const PARAM_RELEASE: usize = 3;
-pub const PARAM_INSTRUMENT_ORGANIC: usize = 4;
-pub const PARAM_INSTRUMENT_SC_BOOST: usize = 5;
-pub const PARAM_INSTRUMENT_SC_FREQ_SMOOTHING: usize = 6;
+pub const PARAM_MAG_GLIDE: usize = 0;
+pub const PARAM_PHASE_GLIDE: usize = 1;
+pub const PARAM_INSTRUMENT_ORGANIC: usize = 2;
 
-pub const INSTRUMENT_PARAMS: [ParamInfo; 7] = [
+pub const INSTRUMENT_PARAMS: [ParamInfo; 3] = [
     ParamInfo {
-        id: "attack",
-        name: "Attack",
+        id: "magGlide",
+        name: "Mag Glide",
         kind: ParamKind::Float,
         min: 0.0,
         max: 5.0,
-        default: 0.010,
-        unit: " s",
-    },
-    ParamInfo {
-        id: "decay",
-        name: "Decay",
-        kind: ParamKind::Float,
-        min: 0.0,
-        max: 5.0,
-        default: 0.100,
-        unit: " s",
-    },
-    ParamInfo {
-        id: "sustain",
-        name: "Sustain",
-        kind: ParamKind::Float,
-        min: 0.0,
-        max: 1.0,
-        default: 1.0,
-        unit: "%",
-    },
-    ParamInfo {
-        id: "release",
-        name: "Release",
-        kind: ParamKind::Float,
-        min: 0.0,
-        max: 10.0,
         default: 0.250,
+        unit: " s",
+    },
+    ParamInfo {
+        id: "phaseGlide",
+        name: "Phase Glide",
+        kind: ParamKind::Float,
+        min: 0.0,
+        max: 5.0,
+        default: 0.500,
         unit: " s",
     },
     ParamInfo {
@@ -71,47 +47,21 @@ pub const INSTRUMENT_PARAMS: [ParamInfo; 7] = [
         default: PARAMS[PARAM_ORGANIC].default,
         unit: "%",
     },
-    ParamInfo {
-        id: "scBoost",
-        name: "SC Boost",
-        kind: ParamKind::Float,
-        min: 0.0,
-        max: 18.0,
-        default: PARAMS[PARAM_SC_BOOST].default,
-        unit: " dB",
-    },
-    ParamInfo {
-        id: "scFreqSmoothing",
-        name: "SC Freq Smooth",
-        kind: ParamKind::Float,
-        min: 0.0,
-        max: 1.0,
-        default: PARAMS[PARAM_SC_FREQ_SMOOTHING].default,
-        unit: "%",
-    },
 ];
 
 #[derive(Clone, Copy, Debug)]
 pub struct InstrumentProcessParams {
-    pub attack_s: f32,
-    pub decay_s: f32,
-    pub sustain: f32,
-    pub release_s: f32,
+    pub mag_glide_s: f32,
+    pub phase_glide_s: f32,
     pub organic: f32,
-    pub sc_boost_db: f32,
-    pub sc_freq_smoothing: f32,
 }
 
 impl Default for InstrumentProcessParams {
     fn default() -> Self {
         Self {
-            attack_s: INSTRUMENT_PARAMS[PARAM_ATTACK].default,
-            decay_s: INSTRUMENT_PARAMS[PARAM_DECAY].default,
-            sustain: INSTRUMENT_PARAMS[PARAM_SUSTAIN].default,
-            release_s: INSTRUMENT_PARAMS[PARAM_RELEASE].default,
+            mag_glide_s: INSTRUMENT_PARAMS[PARAM_MAG_GLIDE].default,
+            phase_glide_s: INSTRUMENT_PARAMS[PARAM_PHASE_GLIDE].default,
             organic: INSTRUMENT_PARAMS[PARAM_INSTRUMENT_ORGANIC].default,
-            sc_boost_db: INSTRUMENT_PARAMS[PARAM_INSTRUMENT_SC_BOOST].default,
-            sc_freq_smoothing: INSTRUMENT_PARAMS[PARAM_INSTRUMENT_SC_FREQ_SMOOTHING].default,
         }
     }
 }
@@ -119,13 +69,9 @@ impl Default for InstrumentProcessParams {
 impl InstrumentProcessParams {
     pub fn clamped(self) -> Self {
         Self {
-            attack_s: clamp(self.attack_s, 0.0, 5.0),
-            decay_s: clamp(self.decay_s, 0.0, 5.0),
-            sustain: clamp(self.sustain, 0.0, 1.0),
-            release_s: clamp(self.release_s, 0.0, 10.0),
+            mag_glide_s: clamp(self.mag_glide_s, 0.0, 5.0),
+            phase_glide_s: clamp(self.phase_glide_s, 0.0, 5.0),
             organic: clamp(self.organic, 0.0, 1.0),
-            sc_boost_db: clamp(self.sc_boost_db, 0.0, 18.0),
-            sc_freq_smoothing: clamp(self.sc_freq_smoothing, 0.0, 1.0),
         }
     }
 }
@@ -276,26 +222,46 @@ fn format_time(seconds: f32) -> String {
     format!("{minutes:02}:{secs:02}.{millis:03}")
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum EnvStage {
-    Idle,
-    Attack,
-    Decay,
-    Sustain,
-    Release,
+const GATE_ATTACK_S: f32 = 0.008;
+const GATE_RELEASE_S: f32 = 0.180;
+
+fn glide_coeff(time_s: f32, sample_rate: f32) -> f32 {
+    if time_s <= 0.0 || sample_rate <= 0.0 {
+        1.0
+    } else {
+        1.0 - (-(HOP_SIZE as f32) / (time_s * sample_rate)).exp()
+    }
 }
 
-struct InstrumentVoice {
+fn one_pole_coeff(time_s: f32, sample_rate: f32) -> f32 {
+    if time_s <= 0.0 || sample_rate <= 0.0 {
+        1.0
+    } else {
+        1.0 - (-(1.0_f32) / (time_s * sample_rate)).exp()
+    }
+}
+
+fn wrap_phase(phase: f32) -> f32 {
+    (phase + PI).rem_euclid(2.0 * PI) - PI
+}
+
+struct MonoSpectralEngine {
     active: bool,
-    pad_index: usize,
-    item_index: usize,
-    note: u8,
-    channel: u8,
+    gate: bool,
+    target_pad: Option<usize>,
+    target_item_index: Option<usize>,
+    last_note: u8,
+    last_channel: u8,
     velocity: f32,
-    env_stage: EnvStage,
-    env_level: f32,
-    release_start_level: f32,
-    phase: Vec<Box<[f32; NUM_BINS]>>,
+    physical_pads: [bool; PAD_COUNT],
+    held_pads: [bool; PAD_COUNT],
+    sustain_down: bool,
+    current_mag: Vec<Box<[f32; NUM_BINS]>>,
+    current_phase: Vec<Box<[f32; NUM_BINS]>>,
+    current_phase_advance: Vec<Box<[f32; NUM_BINS]>>,
+    organic_am: Vec<OrganicAmState>,
+    organic_scratch: Vec<OrganicScratch>,
+    amp: f32,
     output_fifo: Vec<Box<[f32; FFT_SIZE]>>,
     spectrum: Box<[Complex32; FFT_SIZE]>,
     fifo_pos: usize,
@@ -303,53 +269,99 @@ struct InstrumentVoice {
     rng: JuceRandom,
 }
 
-impl InstrumentVoice {
-    fn new(output_channels: usize, seed: u32) -> Self {
-        Self {
+impl MonoSpectralEngine {
+    fn new(output_channels: usize) -> Self {
+        let mut this = Self {
             active: false,
-            pad_index: 0,
-            item_index: 0,
-            note: FIRST_PAD_MIDI_NOTE,
-            channel: 0,
+            gate: false,
+            target_pad: None,
+            target_item_index: None,
+            last_note: FIRST_PAD_MIDI_NOTE,
+            last_channel: 0,
             velocity: 0.0,
-            env_stage: EnvStage::Idle,
-            env_level: 0.0,
-            release_start_level: 0.0,
-            phase: (0..output_channels)
-                .map(|_| Box::new([0.0; NUM_BINS]))
-                .collect(),
-            output_fifo: (0..output_channels)
-                .map(|_| Box::new([0.0; FFT_SIZE]))
-                .collect(),
+            physical_pads: [false; PAD_COUNT],
+            held_pads: [false; PAD_COUNT],
+            sustain_down: false,
+            current_mag: Vec::new(),
+            current_phase: Vec::new(),
+            current_phase_advance: Vec::new(),
+            organic_am: Vec::new(),
+            organic_scratch: Vec::new(),
+            amp: 0.0,
+            output_fifo: Vec::new(),
             spectrum: Box::new([Complex32::new(0.0, 0.0); FFT_SIZE]),
             fifo_pos: 0,
             hop_counter: HOP_SIZE,
-            rng: JuceRandom::new(seed as u64),
-        }
+            rng: JuceRandom::new(0x51f0_fade),
+        };
+        this.prepare_channels(output_channels);
+        this
     }
 
     fn prepare_channels(&mut self, output_channels: usize) {
-        if self.phase.len() != output_channels {
-            self.phase = (0..output_channels)
+        if self.current_mag.len() != output_channels {
+            self.current_mag = (0..output_channels)
+                .map(|_| Box::new([0.0; NUM_BINS]))
+                .collect();
+            self.current_phase = (0..output_channels)
+                .map(|_| Box::new([0.0; NUM_BINS]))
+                .collect();
+            self.current_phase_advance = (0..output_channels)
                 .map(|_| Box::new([0.0; NUM_BINS]))
                 .collect();
             self.output_fifo = (0..output_channels)
                 .map(|_| Box::new([0.0; FFT_SIZE]))
                 .collect();
+            self.organic_am = (0..output_channels)
+                .map(|_| OrganicAmState::default())
+                .collect();
+            self.organic_scratch = (0..output_channels)
+                .map(|_| OrganicScratch::default())
+                .collect();
         }
-        self.clear_buffers();
     }
 
-    fn clear_buffers(&mut self) {
+    fn reset(&mut self) {
+        self.active = false;
+        self.gate = false;
+        self.target_pad = None;
+        self.target_item_index = None;
+        self.last_note = FIRST_PAD_MIDI_NOTE;
+        self.last_channel = 0;
+        self.velocity = 0.0;
+        self.physical_pads = [false; PAD_COUNT];
+        self.held_pads = [false; PAD_COUNT];
+        self.sustain_down = false;
+        self.amp = 0.0;
+        self.clear_spectral_state();
+        for organic_am in &mut self.organic_am {
+            organic_am.value.fill(0.0);
+            organic_am.hop_counter = 0;
+            for target in &mut organic_am.target {
+                *target = self.rng.bipolar();
+            }
+        }
+        self.clear_output_buffers();
+    }
+
+    fn clear_spectral_state(&mut self) {
+        for ch in 0..self.current_mag.len() {
+            self.current_mag[ch].fill(0.0);
+            self.current_phase[ch].fill(0.0);
+            self.current_phase_advance[ch].fill(0.0);
+        }
+        self.spectrum.fill(Complex32::new(0.0, 0.0));
+    }
+
+    fn clear_output_buffers(&mut self) {
         for fifo in &mut self.output_fifo {
             fifo.fill(0.0);
         }
-        self.spectrum.fill(Complex32::new(0.0, 0.0));
         self.fifo_pos = 0;
         self.hop_counter = HOP_SIZE;
     }
 
-    fn start(
+    fn set_target(
         &mut self,
         pad_index: usize,
         item_index: usize,
@@ -358,92 +370,80 @@ impl InstrumentVoice {
         channel: u8,
         velocity: f32,
     ) {
+        let should_seed = !self.active || self.spectral_energy() <= 1.0e-8;
         self.active = true;
-        self.pad_index = pad_index;
-        self.item_index = item_index;
-        self.note = note;
-        self.channel = channel;
+        self.gate = true;
+        self.target_pad = Some(pad_index);
+        self.target_item_index = Some(item_index);
+        self.last_note = note;
+        self.last_channel = channel;
         self.velocity = clamp(velocity, 0.0, 1.0);
-        self.env_stage = EnvStage::Attack;
-        self.env_level = 0.0;
-        self.release_start_level = 0.0;
-        self.clear_buffers();
-        if !item.channels.is_empty() {
-            for out_ch in 0..self.phase.len() {
-                let src_ch = out_ch.min(item.channels.len() - 1);
-                for k in 0..NUM_BINS {
-                    self.phase[out_ch][k] =
-                        item.channels[src_ch].phase.get(k).copied().unwrap_or(0.0);
-                }
+        self.physical_pads[pad_index] = true;
+        self.held_pads[pad_index] = true;
+
+        if should_seed {
+            self.seed_from_target(item);
+        }
+    }
+
+    fn note_off(&mut self, pad_index: usize) {
+        self.physical_pads[pad_index] = false;
+        if !self.sustain_down {
+            self.held_pads[pad_index] = false;
+            if !self.held_pads.iter().any(|&held| held) {
+                self.gate = false;
             }
         }
     }
 
-    fn release(&mut self, params: InstrumentProcessParams) {
-        if self.active && self.env_stage != EnvStage::Release {
-            if params.release_s <= 0.0 || self.env_level <= 1.0e-5 {
-                self.stop();
-            } else {
-                self.env_stage = EnvStage::Release;
-                self.release_start_level = self.env_level;
+    fn set_sustain(&mut self, down: bool) {
+        if self.sustain_down && !down {
+            self.held_pads = self.physical_pads;
+            if !self.held_pads.iter().any(|&held| held) {
+                self.gate = false;
             }
         }
+        self.sustain_down = down;
     }
 
-    fn stop(&mut self) {
-        self.active = false;
-        self.env_stage = EnvStage::Idle;
-        self.env_level = 0.0;
-        self.clear_buffers();
+    fn active_pads(&self) -> [bool; PAD_COUNT] {
+        let mut active = self.held_pads;
+        if self.gate {
+            if let Some(pad) = self.target_pad.filter(|&pad| pad < PAD_COUNT) {
+                active[pad] = true;
+            }
+        }
+        active
     }
 
-    fn next_envelope(&mut self, sample_rate: f32, params: InstrumentProcessParams) -> f32 {
-        match self.env_stage {
-            EnvStage::Idle => 0.0,
-            EnvStage::Attack => {
-                if params.attack_s <= 0.0 {
-                    self.env_level = 1.0;
-                    self.env_stage = EnvStage::Decay;
-                } else {
-                    self.env_level += 1.0 / (params.attack_s * sample_rate).max(1.0);
-                    if self.env_level >= 1.0 {
-                        self.env_level = 1.0;
-                        self.env_stage = EnvStage::Decay;
-                    }
-                }
-                self.env_level
-            }
-            EnvStage::Decay => {
-                if params.decay_s <= 0.0 {
-                    self.env_level = params.sustain;
-                    self.env_stage = EnvStage::Sustain;
-                } else {
-                    self.env_level -=
-                        (1.0 - params.sustain) / (params.decay_s * sample_rate).max(1.0);
-                    if self.env_level <= params.sustain {
-                        self.env_level = params.sustain;
-                        self.env_stage = EnvStage::Sustain;
-                    }
-                }
-                self.env_level
-            }
-            EnvStage::Sustain => {
-                self.env_level = params.sustain;
-                self.env_level
-            }
-            EnvStage::Release => {
-                if params.release_s <= 0.0 {
-                    self.stop();
-                    return 0.0;
-                }
-                self.env_level -=
-                    self.release_start_level / (params.release_s * sample_rate).max(1.0);
-                if self.env_level <= 1.0e-5 {
-                    self.stop();
-                    0.0
-                } else {
-                    self.env_level
-                }
+    fn spectral_energy(&self) -> f32 {
+        self.current_mag
+            .iter()
+            .flat_map(|ch| ch.iter())
+            .map(|mag| mag.abs())
+            .sum()
+    }
+
+    fn seed_from_target(&mut self, item: &CapturedFreeze) {
+        if item.channels.is_empty() {
+            return;
+        }
+
+        for out_ch in 0..self.current_mag.len() {
+            let src_ch = out_ch.min(item.channels.len() - 1);
+            let channel = &item.channels[src_ch];
+            let max_mag = channel.mag.iter().copied().fold(0.0_f32, f32::max);
+            let threshold = max_mag * item.filter * item.filter;
+
+            for k in 0..NUM_BINS {
+                let raw_mag = channel.mag.get(k).copied().unwrap_or(0.0);
+                self.current_mag[out_ch][k] = if raw_mag >= threshold { raw_mag } else { 0.0 };
+                self.current_phase[out_ch][k] = channel.phase.get(k).copied().unwrap_or(0.0);
+                self.current_phase_advance[out_ch][k] = channel
+                    .phase_advance
+                    .get(k)
+                    .copied()
+                    .unwrap_or_else(|| phase_advance_for_bin(k));
             }
         }
     }
@@ -451,6 +451,8 @@ impl InstrumentVoice {
     fn render_frame(
         &mut self,
         item: &CapturedFreeze,
+        sample_rate: f32,
+        params: InstrumentProcessParams,
         window: &[f32; FFT_SIZE],
         window_gain: f32,
         inverse_fft: &Arc<dyn Fft<f32>>,
@@ -458,39 +460,100 @@ impl InstrumentVoice {
         if item.channels.is_empty() {
             return;
         }
+
+        let mag_coeff = glide_coeff(params.mag_glide_s, sample_rate);
+        let phase_coeff = glide_coeff(params.phase_glide_s, sample_rate);
+        let organic_amt = params.organic;
+
         for out_ch in 0..self.output_fifo.len() {
             self.spectrum.fill(Complex32::new(0.0, 0.0));
             let src_ch = out_ch.min(item.channels.len() - 1);
             let channel = &item.channels[src_ch];
             let max_mag = channel.mag.iter().copied().fold(0.0_f32, f32::max);
             let threshold = max_mag * item.filter * item.filter;
-            for k in 0..NUM_BINS {
-                let mag = channel.mag.get(k).copied().unwrap_or(0.0);
-                let phase_advance = channel.phase_advance.get(k).copied().unwrap_or(0.0);
-                let mut phase = self.phase[out_ch][k]
-                    + phase_advance
-                    + self.rng.bipolar() * FREEZE_PHASE_JITTER_RADIANS;
-                if phase > PI {
-                    phase -= 2.0 * PI;
-                } else if phase < -PI {
-                    phase += 2.0 * PI;
+
+            if organic_amt > 0.0 {
+                let organic_am = &mut self.organic_am[out_ch];
+                organic_am.hop_counter += 1;
+                if organic_am.hop_counter >= 8 {
+                    organic_am.hop_counter = 0;
+                    for target in &mut organic_am.target {
+                        *target = self.rng.bipolar();
+                    }
                 }
-                self.phase[out_ch][k] = phase;
-                self.spectrum[k] = if mag >= threshold {
-                    Complex32::from_polar(mag, phase)
-                } else {
-                    Complex32::new(0.0, 0.0)
-                };
+                for b in 0..ORGANIC_AM_BANDS {
+                    organic_am.value[b] += 0.08 * (organic_am.target[b] - organic_am.value[b]);
+                }
             }
+
+            for k in 0..NUM_BINS {
+                let raw_mag = channel.mag.get(k).copied().unwrap_or(0.0);
+                let target_mag = if raw_mag >= threshold { raw_mag } else { 0.0 };
+                let target_phase_advance = channel
+                    .phase_advance
+                    .get(k)
+                    .copied()
+                    .unwrap_or_else(|| phase_advance_for_bin(k));
+
+                self.current_mag[out_ch][k] +=
+                    mag_coeff * (target_mag - self.current_mag[out_ch][k]);
+                self.current_phase_advance[out_ch][k] +=
+                    phase_coeff * (target_phase_advance - self.current_phase_advance[out_ch][k]);
+
+                let phase_advance = self.current_phase_advance[out_ch][k]
+                    * (1.0 + self.rng.bipolar() * organic_amt * 0.035);
+                let phase = wrap_phase(
+                    self.current_phase[out_ch][k]
+                        + phase_advance
+                        + self.rng.bipolar() * (FREEZE_PHASE_JITTER_RADIANS + organic_amt * 0.18),
+                );
+                self.current_phase[out_ch][k] = phase;
+
+                let band_pos = k as f32 * ORGANIC_AM_BANDS as f32 / NUM_BINS as f32;
+                let band0 = clamp(band_pos, 0.0, (ORGANIC_AM_BANDS - 1) as f32) as usize;
+                let band1 = (band0 + 1).min(ORGANIC_AM_BANDS - 1);
+                let frac = band_pos - band0 as f32;
+                let band_am = self.organic_am[out_ch].value[band0] * (1.0 - frac)
+                    + self.organic_am[out_ch].value[band1] * frac;
+                let mag = (self.current_mag[out_ch][k]
+                    * (1.0 + band_am * organic_amt * 0.28)
+                    * (1.0 + self.rng.bipolar() * organic_amt * 0.06))
+                    .max(0.0);
+                self.spectrum[k] = Complex32::from_polar(mag, phase);
+            }
+
+            apply_organic_spectral_processing(
+                self.spectrum.as_mut(),
+                &mut self.rng,
+                &mut self.organic_scratch[out_ch],
+                organic_amt,
+                item.filter,
+            );
             rebuild_conjugate_mirror(self.spectrum.as_mut());
             inverse_fft.process(self.spectrum.as_mut_slice());
             normalize_inverse_fft(self.spectrum.as_mut());
+            apply_organic_saturation(self.spectrum.as_mut(), organic_amt);
             apply_synthesis_window(self.spectrum.as_mut(), window, window_gain);
             let fifo = &mut self.output_fifo[out_ch];
             for i in 0..FFT_SIZE {
                 fifo[(self.fifo_pos + i) % FFT_SIZE] += self.spectrum[i].re;
             }
         }
+    }
+
+    fn next_amp(&mut self, sample_rate: f32) -> f32 {
+        let target = if self.gate { self.velocity } else { 0.0 };
+        let time_s = if target > self.amp {
+            GATE_ATTACK_S
+        } else {
+            GATE_RELEASE_S
+        };
+        let coeff = one_pole_coeff(time_s, sample_rate);
+        self.amp += coeff * (target - self.amp);
+        if target <= 0.0 && self.amp.abs() < 1.0e-5 {
+            self.amp = 0.0;
+        }
+        self.amp
     }
 }
 
@@ -499,10 +562,7 @@ pub struct FreezeInstrument {
     output_channels: usize,
     window: Box<[f32; FFT_SIZE]>,
     window_gain: f32,
-    voices: Vec<InstrumentVoice>,
-    sustain_down: bool,
-    sustained_pads: [bool; PAD_COUNT],
-    output_fx: SpectralFreeze,
+    engine: MonoSpectralEngine,
     inverse_fft: Arc<dyn Fft<f32>>,
 }
 
@@ -513,19 +573,16 @@ impl Default for FreezeInstrument {
             output_channels: 2,
             window: Box::new([0.0; FFT_SIZE]),
             window_gain: 1.0,
-            voices: Vec::new(),
-            sustain_down: false,
-            sustained_pads: [false; PAD_COUNT],
-            output_fx: SpectralFreeze::default(),
+            engine: MonoSpectralEngine::new(2),
             inverse_fft: FftPlanner::<f32>::new().plan_fft_inverse(FFT_SIZE),
         };
-        this.prepare(44_100.0, 2, 0);
+        this.prepare(44_100.0, 2);
         this
     }
 }
 
 impl FreezeInstrument {
-    pub fn prepare(&mut self, sample_rate: f32, output_channels: usize, sidechain_channels: usize) {
+    pub fn prepare(&mut self, sample_rate: f32, output_channels: usize) {
         self.sample_rate = if sample_rate > 0.0 {
             sample_rate
         } else {
@@ -534,28 +591,12 @@ impl FreezeInstrument {
         self.output_channels = output_channels.max(1);
         fill_hann_window(self.window.as_mut());
         self.window_gain = calculate_window_gain(self.window.as_ref());
-
-        if self.voices.len() != MAX_INSTRUMENT_VOICES {
-            self.voices = (0..MAX_INSTRUMENT_VOICES)
-                .map(|i| InstrumentVoice::new(self.output_channels, 0x51f0_0000 ^ i as u32))
-                .collect();
-        }
-        for voice in &mut self.voices {
-            voice.prepare_channels(self.output_channels);
-        }
-        self.sustain_down = false;
-        self.sustained_pads = [false; PAD_COUNT];
-        self.output_fx
-            .prepare(self.sample_rate, self.output_channels, sidechain_channels);
+        self.engine.prepare_channels(self.output_channels);
+        self.engine.reset();
     }
 
     pub fn reset(&mut self) {
-        for voice in &mut self.voices {
-            voice.stop();
-        }
-        self.sustain_down = false;
-        self.sustained_pads = [false; PAD_COUNT];
-        self.output_fx.reset();
+        self.engine.reset();
     }
 
     pub fn note_on(
@@ -575,74 +616,32 @@ impl FreezeInstrument {
         let Some(item) = pool.get(item_index) else {
             return;
         };
-        for voice in &mut self.voices {
-            if voice.active && voice.pad_index == pad {
-                voice.stop();
-            }
-        }
-        let slot = self
-            .voices
-            .iter()
-            .position(|v| !v.active)
-            .unwrap_or(pad % self.voices.len());
-        self.voices[slot].start(pad, item_index, item, note, channel, velocity);
-        self.sustained_pads[pad] = false;
+        self.engine
+            .set_target(pad, item_index, item, note, channel, velocity);
     }
 
-    pub fn note_off(&mut self, note: u8, channel: u8, params: InstrumentProcessParams) {
+    pub fn note_off(&mut self, note: u8, _channel: u8, _params: InstrumentProcessParams) {
         let Some(pad) = note_to_pad(note) else {
             return;
         };
-        if self.sustain_down {
-            self.sustained_pads[pad] = true;
-            return;
-        }
-        for voice in &mut self.voices {
-            if voice.active
-                && voice.pad_index == pad
-                && voice.note == note
-                && voice.channel == channel
-            {
-                voice.release(params.clamped());
-            }
-        }
+        self.engine.note_off(pad);
     }
 
-    pub fn set_sustain(&mut self, down: bool, params: InstrumentProcessParams) {
-        if self.sustain_down && !down {
-            let params = params.clamped();
-            for pad in 0..PAD_COUNT {
-                if self.sustained_pads[pad] {
-                    for voice in &mut self.voices {
-                        if voice.active && voice.pad_index == pad {
-                            voice.release(params);
-                        }
-                    }
-                }
-                self.sustained_pads[pad] = false;
-            }
-        }
-        self.sustain_down = down;
+    pub fn set_sustain(&mut self, down: bool, _params: InstrumentProcessParams) {
+        self.engine.set_sustain(down);
     }
 
     pub fn active_pads(&self) -> [bool; PAD_COUNT] {
-        let mut active = [false; PAD_COUNT];
-        for voice in &self.voices {
-            if voice.active && voice.pad_index < PAD_COUNT {
-                active[voice.pad_index] = true;
-            }
-        }
-        active
+        self.engine.active_pads()
     }
 
     pub fn process_block(
         &mut self,
         main: &mut [&mut [f32]],
-        sidechain: Option<&[&mut [f32]]>,
         params: InstrumentProcessParams,
         pool: &[CapturedFreeze],
     ) {
-        self.process_block_inner(main, sidechain, params, pool, true);
+        self.process_block_inner(main, params, pool, true);
     }
 
     pub fn process_block_additive(
@@ -651,13 +650,12 @@ impl FreezeInstrument {
         params: InstrumentProcessParams,
         pool: &[CapturedFreeze],
     ) {
-        self.process_block_inner(main, None, params, pool, false);
+        self.process_block_inner(main, params, pool, false);
     }
 
     fn process_block_inner(
         &mut self,
         main: &mut [&mut [f32]],
-        sidechain: Option<&[&mut [f32]]>,
         params: InstrumentProcessParams,
         pool: &[CapturedFreeze],
         clear_outputs: bool,
@@ -670,46 +668,35 @@ impl FreezeInstrument {
                 ch.fill(0.0);
             }
         }
-        for n in 0..num_samples {
-            for voice in &mut self.voices {
-                if !voice.active {
-                    continue;
-                }
-                let Some(item) = pool.get(voice.item_index) else {
-                    voice.stop();
-                    continue;
-                };
-                if voice.hop_counter >= HOP_SIZE {
-                    voice.render_frame(
-                        item,
-                        self.window.as_ref(),
-                        self.window_gain,
-                        &self.inverse_fft,
-                    );
-                    voice.hop_counter = 0;
-                }
-                let env = voice.next_envelope(self.sample_rate, params) * voice.velocity;
-                for ch in 0..channels {
-                    main[ch][n] += voice.output_fifo[ch][voice.fifo_pos] * env;
-                    voice.output_fifo[ch][voice.fifo_pos] = 0.0;
-                }
-                voice.fifo_pos = (voice.fifo_pos + 1) % FFT_SIZE;
-                voice.hop_counter += 1;
-            }
-        }
 
-        if clear_outputs && (params.organic > 0.0 || params.sc_boost_db > 0.0) {
-            self.output_fx.process_block(
-                main,
-                sidechain,
-                ProcessParams {
-                    freeze: false,
-                    filter: 0.0,
-                    sc_boost_db: params.sc_boost_db,
-                    sc_freq_smoothing: params.sc_freq_smoothing,
-                    organic: params.organic,
-                },
-            );
+        for n in 0..num_samples {
+            if self.engine.hop_counter >= HOP_SIZE {
+                if let Some(item_index) = self.engine.target_item_index {
+                    if let Some(item) = pool.get(item_index) {
+                        self.engine.render_frame(
+                            item,
+                            self.sample_rate,
+                            params,
+                            self.window.as_ref(),
+                            self.window_gain,
+                            &self.inverse_fft,
+                        );
+                    } else {
+                        self.engine.active = false;
+                        self.engine.gate = false;
+                        self.engine.target_item_index = None;
+                    }
+                }
+                self.engine.hop_counter = 0;
+            }
+
+            let amp = self.engine.next_amp(self.sample_rate);
+            for ch in 0..channels {
+                main[ch][n] += self.engine.output_fifo[ch][self.engine.fifo_pos] * amp;
+                self.engine.output_fifo[ch][self.engine.fifo_pos] = 0.0;
+            }
+            self.engine.fifo_pos = (self.engine.fifo_pos + 1) % FFT_SIZE;
+            self.engine.hop_counter += 1;
         }
     }
 }

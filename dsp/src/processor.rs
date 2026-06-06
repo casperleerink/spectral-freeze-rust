@@ -1,7 +1,7 @@
 use crate::constants::*;
 use crate::params::ProcessParams;
 use crate::random::JuceRandom;
-use crate::state::{ChannelState, FreezeState, OrganicAmState, OrganicScratch, SidechainState};
+use crate::state::{ChannelState, FreezeState, OrganicAmState, OrganicScratch};
 use crate::stft::{calculate_window_gain, fill_hann_window, fill_phase_advance};
 use rustfft::{Fft, FftPlanner, num_complex::Complex32};
 use std::f32::consts::PI;
@@ -9,15 +9,11 @@ use std::sync::Arc;
 
 pub struct SpectralFreeze {
     channels: Vec<ChannelState>,
-    sc_channels: Vec<SidechainState>,
     main_channel_count: usize,
-    sidechain_channel_count: usize,
     window: Box<[f32; FFT_SIZE]>,
     window_gain: f32,
     phase_advance: Box<[f32; NUM_BINS]>,
-    sc_latest_mag: Box<[f32; NUM_BINS]>,
-    sc_smoothed_mag: Box<[f32; NUM_BINS]>,
-    sc_retention_per_hop: f32,
+
     master_hop_counter: usize,
     forward_fft: Arc<dyn Fft<f32>>,
     inverse_fft: Arc<dyn Fft<f32>>,
@@ -34,15 +30,11 @@ impl Default for SpectralFreeze {
 
         let mut this = Self {
             channels: Vec::new(),
-            sc_channels: Vec::new(),
             main_channel_count: 0,
-            sidechain_channel_count: 0,
             window: Box::new([0.0; FFT_SIZE]),
             window_gain: 1.0,
             phase_advance: Box::new([0.0; NUM_BINS]),
-            sc_latest_mag: Box::new([0.0; NUM_BINS]),
-            sc_smoothed_mag: Box::new([0.0; NUM_BINS]),
-            sc_retention_per_hop: 0.65,
+
             master_hop_counter: 0,
             forward_fft,
             inverse_fft,
@@ -50,15 +42,14 @@ impl Default for SpectralFreeze {
             spectrum_bucket_starts: [1; SPECTRUM_DISPLAY_BINS],
             spectrum_bucket_ends: [2; SPECTRUM_DISPLAY_BINS],
         };
-        this.prepare(44_100.0, 2, 0);
+        this.prepare(44_100.0, 2);
         this
     }
 }
 
 impl SpectralFreeze {
-    pub fn prepare(&mut self, sample_rate: f32, main_channels: usize, sidechain_channels: usize) {
+    pub fn prepare(&mut self, sample_rate: f32, main_channels: usize) {
         self.main_channel_count = main_channels;
-        self.sidechain_channel_count = sidechain_channels;
 
         self.channels.clear();
         self.channels.reserve(main_channels);
@@ -67,27 +58,17 @@ impl SpectralFreeze {
             self.channels.push(ChannelState::new(seed));
         }
 
-        self.sc_channels.clear();
-        self.sc_channels.reserve(sidechain_channels);
-        for _ in 0..sidechain_channels {
-            self.sc_channels.push(SidechainState::new());
-        }
-
         fill_hann_window(self.window.as_mut());
         self.window_gain = calculate_window_gain(self.window.as_ref());
         fill_phase_advance(self.phase_advance.as_mut());
 
-        self.sc_latest_mag.fill(0.0);
-        self.sc_smoothed_mag.fill(0.0);
-        self.processed_spectrum.fill(0.0);
-        self.master_hop_counter = 0;
-
-        let safe_sample_rate = if sample_rate > 0.0 {
+        let _safe_sample_rate = if sample_rate > 0.0 {
             sample_rate
         } else {
             44_100.0
         };
-        self.sc_retention_per_hop = (-(HOP_SIZE as f32 / (safe_sample_rate * 0.75))).exp();
+        self.processed_spectrum.fill(0.0);
+        self.master_hop_counter = 0;
 
         self.precompute_spectrum_buckets();
     }
@@ -96,11 +77,6 @@ impl SpectralFreeze {
         for ch in &mut self.channels {
             ch.reset();
         }
-        for ch in &mut self.sc_channels {
-            ch.reset();
-        }
-        self.sc_latest_mag.fill(0.0);
-        self.sc_smoothed_mag.fill(0.0);
         self.processed_spectrum.fill(0.0);
         self.master_hop_counter = 0;
     }
@@ -108,25 +84,12 @@ impl SpectralFreeze {
     pub fn main_channel_count(&self) -> usize {
         self.main_channel_count
     }
-    pub fn sidechain_channel_count(&self) -> usize {
-        self.sidechain_channel_count
-    }
-
     /// Process planar audio in place. `main` contains the main input copied into
-    /// the output buffers. `sidechain`, when present, is read-only sidechain input.
-    pub fn process_block(
-        &mut self,
-        main: &mut [&mut [f32]],
-        sidechain: Option<&[&mut [f32]]>,
-        params: ProcessParams,
-    ) {
+    /// the output buffers.
+    pub fn process_block(&mut self, main: &mut [&mut [f32]], params: ProcessParams) {
         let params = params.clamped();
         let num_samples = main.first().map_or(0, |ch| ch.len());
         let main_channels = main.len().min(self.channels.len());
-        let sidechain_channels = sidechain
-            .map(|sc| sc.len().min(self.sc_channels.len()))
-            .unwrap_or(0);
-        let run_sidechain = sidechain_channels > 0 && params.sc_boost_db > 0.0;
 
         for n in 0..num_samples {
             for ch in 0..main_channels {
@@ -134,26 +97,12 @@ impl SpectralFreeze {
                 main[ch][n] = state.stft.push_sample_and_pop_output(main[ch][n]);
             }
 
-            if run_sidechain {
-                if let Some(sc) = sidechain {
-                    for ch in 0..sidechain_channels {
-                        let state = &mut self.sc_channels[ch];
-                        state.input_fifo[state.fifo_pos] = sc[ch][n];
-                        state.fifo_pos = (state.fifo_pos + 1) % FFT_SIZE;
-                    }
-                }
-            }
-
             self.master_hop_counter += 1;
             if self.master_hop_counter >= HOP_SIZE {
                 self.master_hop_counter = 0;
 
-                if run_sidechain {
-                    self.analyse_sidechain_hop(sidechain_channels);
-                }
-
                 for ch in 0..main_channels {
-                    self.process_channel_frame(ch, run_sidechain, params);
+                    self.process_channel_frame(ch, params);
                     self.channels[ch].stft.overlap_add_scratch_to_output();
                 }
             }
@@ -179,29 +128,7 @@ impl SpectralFreeze {
         }
     }
 
-    fn analyse_sidechain_hop(&mut self, sidechain_channels: usize) {
-        self.sc_latest_mag.fill(0.0);
-        for ch in 0..sidechain_channels {
-            let state = &mut self.sc_channels[ch];
-            for i in 0..FFT_SIZE {
-                state.spectrum[i] = Complex32::new(
-                    state.input_fifo[(state.fifo_pos + i) % FFT_SIZE] * self.window[i],
-                    0.0,
-                );
-            }
-            self.forward_fft.process(state.spectrum.as_mut_slice());
-            for k in 0..NUM_BINS {
-                self.sc_latest_mag[k] += state.spectrum[k].norm();
-            }
-        }
-
-        for k in 0..NUM_BINS {
-            self.sc_smoothed_mag[k] = self.sc_retention_per_hop * self.sc_smoothed_mag[k]
-                + (1.0 - self.sc_retention_per_hop) * self.sc_latest_mag[k];
-        }
-    }
-
-    fn process_channel_frame(&mut self, ch: usize, apply_sidechain: bool, params: ProcessParams) {
+    fn process_channel_frame(&mut self, ch: usize, params: ProcessParams) {
         let state = &mut self.channels[ch];
         state.stft.copy_input_frame_to_spectrum();
 
@@ -243,15 +170,6 @@ impl SpectralFreeze {
             params.organic,
             params.filter,
         );
-
-        if apply_sidechain {
-            apply_sidechain_enhancement(
-                state.stft.spectrum.as_mut(),
-                self.sc_smoothed_mag.as_ref(),
-                params.sc_boost_db,
-                params.sc_freq_smoothing,
-            );
-        }
 
         publish_processed_spectrum_from(
             state.stft.spectrum.as_ref(),
@@ -461,7 +379,7 @@ pub(crate) fn rebuild_conjugate_mirror(spectrum: &mut [Complex32; FFT_SIZE]) {
     spectrum[FFT_SIZE / 2].im = 0.0;
 }
 
-fn apply_organic_spectral_processing(
+pub(crate) fn apply_organic_spectral_processing(
     spectrum: &mut [Complex32; FFT_SIZE],
     rng: &mut JuceRandom,
     scratch: &mut OrganicScratch,
@@ -537,107 +455,9 @@ pub(crate) fn apply_organic_saturation(spectrum: &mut [Complex32; FFT_SIZE], org
     }
 }
 
-fn apply_sidechain_enhancement(
-    spectrum: &mut [Complex32; FFT_SIZE],
-    smoothed_mag: &[f32; NUM_BINS],
-    boost_db: f32,
-    freq_smoothing: f32,
-) {
-    if boost_db <= 0.0 {
-        return;
-    }
-
-    let mut sc_peak: f32 = 0.0;
-    let mut main_peak: f32 = 0.0;
-    for k in 0..NUM_BINS {
-        sc_peak = sc_peak.max(smoothed_mag[k]);
-        main_peak = main_peak.max(spectrum[k].norm());
-    }
-    if sc_peak <= 1.0e-9 || main_peak <= 1.0e-9 {
-        return;
-    }
-
-    let mut raw_mask = [0.0_f32; NUM_BINS];
-    let mut mask = [0.0_f32; NUM_BINS];
-    let inv_sc_peak = sc_peak.recip();
-    let inv_main_peak = main_peak.recip();
-    const GAMMA: f32 = 1.25;
-    const PRESENCE_THRESHOLD: f32 = 0.004;
-    const PRESENCE_FULL: f32 = 0.05;
-
-    for k in 0..NUM_BINS {
-        let main_norm = spectrum[k].norm() * inv_main_peak;
-        let sc_norm = smoothed_mag[k] * inv_sc_peak;
-        let sc_match = clamp(sc_norm, 0.0, 1.0).powf(GAMMA);
-        let main_presence =
-            smoothstep((main_norm - PRESENCE_THRESHOLD) / (PRESENCE_FULL - PRESENCE_THRESHOLD));
-        raw_mask[k] = sc_match * main_presence;
-    }
-
-    let a = clamp(freq_smoothing, 0.0, 1.0);
-    for k in 0..NUM_BINS {
-        let left = raw_mask[k.saturating_sub(1)];
-        let mid = raw_mask[k];
-        let right = raw_mask[(k + 1).min(NUM_BINS - 1)];
-        mask[k] = (1.0 - a) * mid + a * (0.25 * left + 0.5 * mid + 0.25 * right);
-    }
-
-    let pre_peak = main_peak;
-    let pre_energy = spectral_energy(spectrum);
-    let max_boost = decibels_to_gain(clamp(boost_db, 0.0, 18.0));
-    for k in 0..NUM_BINS {
-        let shaped = smoothstep(mask[k]);
-        let boost_gain = 1.0 + (max_boost - 1.0) * shaped;
-        spectrum[k] *= boost_gain;
-    }
-
-    let post_peak = spectrum
-        .iter()
-        .take(NUM_BINS)
-        .map(|c| c.norm())
-        .fold(0.0_f32, f32::max);
-    let post_energy = spectral_energy(spectrum);
-    let peak_compensation = if post_peak > pre_peak && post_peak > 1.0e-9 {
-        pre_peak / post_peak
-    } else {
-        1.0
-    };
-    let energy_compensation = if post_energy > pre_energy && post_energy > 1.0e-18 {
-        (pre_energy / post_energy).sqrt()
-    } else {
-        1.0
-    };
-    const SIDECHAIN_HEADROOM: f32 = 0.95;
-    let compensation = peak_compensation.min(energy_compensation) * SIDECHAIN_HEADROOM;
-    if compensation < 1.0 {
-        for c in spectrum.iter_mut().take(NUM_BINS) {
-            *c *= compensation;
-        }
-    }
-}
-
-fn spectral_energy(spectrum: &[Complex32; FFT_SIZE]) -> f32 {
-    let mut energy = spectrum[0].norm_sqr() + spectrum[FFT_SIZE / 2].norm_sqr();
-    for c in spectrum.iter().take(FFT_SIZE / 2).skip(1) {
-        energy += 2.0 * c.norm_sqr();
-    }
-    energy
-}
-
 #[inline]
 fn clamp(x: f32, min: f32, max: f32) -> f32 {
     x.max(min).min(max)
-}
-
-#[inline]
-fn smoothstep(x: f32) -> f32 {
-    let x = clamp(x, 0.0, 1.0);
-    x * x * (3.0 - 2.0 * x)
-}
-
-#[inline]
-fn decibels_to_gain(db: f32) -> f32 {
-    10.0_f32.powf(db / 20.0)
 }
 
 #[inline]

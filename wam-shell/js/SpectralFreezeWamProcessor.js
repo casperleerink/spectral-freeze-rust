@@ -18,22 +18,15 @@ class SpectralFreezeWamProcessor extends AudioWorkletProcessor {
     this.memory = this.exports.memory;
 
     this.mainChannels = Math.max(1, Math.min(2, opts.mainChannels ?? 2));
-    this.sidechainChannels = Math.max(0, Math.min(2, opts.sidechainChannels ?? 0));
     this.maxBlock = opts.maxBlock ?? 128;
     this.frames = 128;
 
-    this.processor = this.exports.sf_create(sampleRate, this.mainChannels, this.sidechainChannels, this.maxBlock);
+    this.processor = this.exports.sf_create(sampleRate, this.mainChannels, this.maxBlock);
     this.inputPtr = this.exports.sf_alloc_f32(this.mainChannels * this.maxBlock);
     this.outputPtr = this.exports.sf_alloc_f32(this.mainChannels * this.maxBlock);
-    this.sidechainPtr = this.sidechainChannels > 0
-      ? this.exports.sf_alloc_f32(this.sidechainChannels * this.maxBlock)
-      : 0;
 
     this.inputHeap = new Float32Array(this.memory.buffer, this.inputPtr, this.mainChannels * this.maxBlock);
     this.outputHeap = new Float32Array(this.memory.buffer, this.outputPtr, this.mainChannels * this.maxBlock);
-    this.sidechainHeap = this.sidechainPtr
-      ? new Float32Array(this.memory.buffer, this.sidechainPtr, this.sidechainChannels * this.maxBlock)
-      : null;
     this.silence = new Float32Array(this.maxBlock);
 
     this.paramRing = opts.parameterRing ?? null;
@@ -90,13 +83,11 @@ class SpectralFreezeWamProcessor extends AudioWorkletProcessor {
 
     this.drainParameterRing();
     this.copyInput(inputs[0], this.inputHeap, this.mainChannels, frames);
-    if (this.sidechainHeap) this.copyInput(inputs[1], this.sidechainHeap, this.sidechainChannels, frames);
 
     this.exports.sf_process(
       this.processor,
       this.inputPtr,
       this.outputPtr,
-      this.sidechainHeap ? this.sidechainPtr : 0,
       frames,
     );
     this.copyOutput(output, frames);

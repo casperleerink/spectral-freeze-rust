@@ -5,20 +5,19 @@ use std::f32::consts::PI;
 
 #[test]
 fn manifest_matches_constants() {
-    assert_eq!(PARAMS.len(), 5);
+    assert_eq!(PARAMS.len(), 3);
     assert_eq!(PARAMS[PARAM_FREEZE].id, "freeze");
-    assert_eq!(PARAMS[PARAM_SC_FREQ_SMOOTHING].default, 0.25);
-    assert!(PARAMETER_MANIFEST_JSON.contains("scFreqSmoothing"));
+    assert_eq!(PARAMS[PARAM_ORGANIC].id, "organic");
 }
 
 #[test]
 fn silence_stays_silent() {
     let mut processor = SpectralFreeze::default();
-    processor.prepare(44_100.0, 2, 0);
+    processor.prepare(44_100.0, 2);
     let mut left = vec![0.0_f32; 4096];
     let mut right = vec![0.0_f32; 4096];
     let mut channels: [&mut [f32]; 2] = [&mut left, &mut right];
-    processor.process_block(&mut channels, None, ProcessParams::default());
+    processor.process_block(&mut channels, ProcessParams::default());
     assert!(
         channels
             .iter()
@@ -30,11 +29,11 @@ fn silence_stays_silent() {
 #[test]
 fn impulse_passes_after_latency() {
     let mut processor = SpectralFreeze::default();
-    processor.prepare(48_000.0, 1, 0);
+    processor.prepare(48_000.0, 1);
     let mut mono = vec![0.0_f32; FFT_SIZE * 4];
     mono[0] = 1.0;
     let mut channels: [&mut [f32]; 1] = [&mut mono];
-    processor.process_block(&mut channels, None, ProcessParams::default());
+    processor.process_block(&mut channels, ProcessParams::default());
     let energy: f32 = channels[0].iter().map(|x| x.abs()).sum();
     assert!(
         energy > 0.1,
@@ -63,7 +62,7 @@ fn organic_saturation_compensates_its_own_gain() {
 fn organic_macro_does_not_raise_output_level() {
     fn render_rms(organic: f32) -> f32 {
         let mut processor = SpectralFreeze::default();
-        processor.prepare(44_100.0, 1, 0);
+        processor.prepare(44_100.0, 1);
         let mut mono = vec![0.0_f32; FFT_SIZE * 16];
         for (i, sample) in mono.iter_mut().enumerate() {
             *sample = (2.0 * PI * 440.0 * i as f32 / 44_100.0).sin() * 0.2;
@@ -71,7 +70,6 @@ fn organic_macro_does_not_raise_output_level() {
         let mut channels: [&mut [f32]; 1] = [&mut mono];
         processor.process_block(
             &mut channels,
-            None,
             ProcessParams {
                 organic,
                 ..Default::default()
@@ -113,12 +111,11 @@ fn sine_projection(samples: &[f32], freq: f32, sample_rate: f32, offset: usize) 
 #[test]
 fn freeze_produces_bounded_audio() {
     let mut processor = SpectralFreeze::default();
-    processor.prepare(44_100.0, 1, 0);
+    processor.prepare(44_100.0, 1);
     let mut mono = sine_buffer(440.0, 0.25, 44_100.0, FFT_SIZE * 8);
     let mut channels: [&mut [f32]; 1] = [&mut mono];
     processor.process_block(
         &mut channels,
-        None,
         ProcessParams {
             freeze: true,
             ..Default::default()
@@ -131,17 +128,16 @@ fn freeze_produces_bounded_audio() {
 fn freeze_holds_tone_after_input_stops() {
     let sample_rate = 44_100.0;
     let mut processor = SpectralFreeze::default();
-    processor.prepare(sample_rate, 1, 0);
+    processor.prepare(sample_rate, 1);
 
     let mut prime = sine_buffer(440.0, 0.2, sample_rate, FFT_SIZE * 3);
     let mut channels: [&mut [f32]; 1] = [&mut prime];
-    processor.process_block(&mut channels, None, ProcessParams::default());
+    processor.process_block(&mut channels, ProcessParams::default());
 
     let mut capture = sine_buffer(440.0, 0.2, sample_rate, HOP_SIZE * 2);
     let mut channels: [&mut [f32]; 1] = [&mut capture];
     processor.process_block(
         &mut channels,
-        None,
         ProcessParams {
             freeze: true,
             ..Default::default()
@@ -152,7 +148,6 @@ fn freeze_holds_tone_after_input_stops() {
     let mut channels: [&mut [f32]; 1] = [&mut silent];
     processor.process_block(
         &mut channels,
-        None,
         ProcessParams {
             freeze: true,
             ..Default::default()
@@ -168,153 +163,15 @@ fn freeze_holds_tone_after_input_stops() {
 }
 
 #[test]
-fn silent_sidechain_matches_no_sidechain() {
-    let sample_rate = 44_100.0;
-    let len = FFT_SIZE * 8;
-    let input = sine_buffer(440.0, 0.2, sample_rate, len);
-
-    let mut no_sc_processor = SpectralFreeze::default();
-    no_sc_processor.prepare(sample_rate, 1, 0);
-    let mut no_sc = input.clone();
-    let mut no_sc_channels: [&mut [f32]; 1] = [&mut no_sc];
-    no_sc_processor.process_block(&mut no_sc_channels, None, ProcessParams::default());
-
-    let mut sc_processor = SpectralFreeze::default();
-    sc_processor.prepare(sample_rate, 1, 1);
-    let mut with_sc = input;
-    let mut silent_sc = vec![0.0_f32; len];
-    let mut with_sc_channels: [&mut [f32]; 1] = [&mut with_sc];
-    let sc_channels: [&mut [f32]; 1] = [&mut silent_sc];
-    sc_processor.process_block(
-        &mut with_sc_channels,
-        Some(&sc_channels),
-        ProcessParams::default(),
-    );
-
-    for (a, b) in no_sc_channels[0].iter().zip(with_sc_channels[0].iter()) {
-        assert!(
-            (a - b).abs() < 1.0e-6,
-            "silent sidechain changed output: {a} vs {b}"
-        );
-    }
-}
-
-#[test]
-fn sidechain_boosts_matching_frequency() {
-    let sample_rate = 44_100.0;
-    let len = FFT_SIZE * 24;
-    let mut main: Vec<f32> = (0..len)
-        .map(|i| {
-            let t = i as f32 / sample_rate;
-            0.12 * (2.0 * PI * 440.0 * t).sin() + 0.04 * (2.0 * PI * 880.0 * t).sin()
-        })
-        .collect();
-    let mut sidechain = sine_buffer(880.0, 0.4, sample_rate, len);
-
-    let mut processor = SpectralFreeze::default();
-    processor.prepare(sample_rate, 1, 1);
-    let mut main_channels: [&mut [f32]; 1] = [&mut main];
-    let sc_channels: [&mut [f32]; 1] = [&mut sidechain];
-    processor.process_block(
-        &mut main_channels,
-        Some(&sc_channels),
-        ProcessParams {
-            sc_boost_db: 18.0,
-            sc_freq_smoothing: 0.25,
-            ..Default::default()
-        },
-    );
-
-    let start = FFT_SIZE * 6;
-    let analysed = &main_channels[0][start..];
-    let a440 = sine_projection(analysed, 440.0, sample_rate, start);
-    let a880 = sine_projection(analysed, 880.0, sample_rate, start);
-    assert!(
-        a880 / a440 > 0.45,
-        "sidechain did not boost matched 880 Hz enough: 440={a440}, 880={a880}"
-    );
-}
-
-#[test]
-fn sidechain_boost_compensates_output_level() {
-    let sample_rate = 44_100.0;
-    let len = FFT_SIZE * 24;
-    let input: Vec<f32> = (0..len)
-        .map(|i| {
-            let t = i as f32 / sample_rate;
-            0.55 * (2.0 * PI * 440.0 * t).sin() + 0.12 * (2.0 * PI * 880.0 * t).sin()
-        })
-        .collect();
-
-    let mut dry_processor = SpectralFreeze::default();
-    dry_processor.prepare(sample_rate, 1, 0);
-    let mut dry = input.clone();
-    let mut dry_channels: [&mut [f32]; 1] = [&mut dry];
-    dry_processor.process_block(
-        &mut dry_channels,
-        None,
-        ProcessParams {
-            sc_boost_db: 0.0,
-            ..Default::default()
-        },
-    );
-
-    let mut boosted_processor = SpectralFreeze::default();
-    boosted_processor.prepare(sample_rate, 1, 1);
-    let mut boosted = input;
-    let mut sidechain = sine_buffer(880.0, 0.8, sample_rate, len);
-    let mut boosted_channels: [&mut [f32]; 1] = [&mut boosted];
-    let sc_channels: [&mut [f32]; 1] = [&mut sidechain];
-    boosted_processor.process_block(
-        &mut boosted_channels,
-        Some(&sc_channels),
-        ProcessParams {
-            sc_boost_db: 18.0,
-            sc_freq_smoothing: 0.25,
-            ..Default::default()
-        },
-    );
-
-    let start = FFT_SIZE * 6;
-    let dry_stable = &dry_channels[0][start..];
-    let boosted_stable = &boosted_channels[0][start..];
-    let dry_peak = dry_stable.iter().fold(0.0_f32, |peak, x| peak.max(x.abs()));
-    let boosted_peak = boosted_stable
-        .iter()
-        .fold(0.0_f32, |peak, x| peak.max(x.abs()));
-    let dry_rms = (dry_stable.iter().map(|x| x * x).sum::<f32>() / dry_stable.len() as f32).sqrt();
-    let boosted_rms =
-        (boosted_stable.iter().map(|x| x * x).sum::<f32>() / boosted_stable.len() as f32).sqrt();
-    let dry_ratio = sine_projection(dry_stable, 880.0, sample_rate, start)
-        / sine_projection(dry_stable, 440.0, sample_rate, start);
-    let boosted_ratio = sine_projection(boosted_stable, 880.0, sample_rate, start)
-        / sine_projection(boosted_stable, 440.0, sample_rate, start);
-
-    assert!(
-        boosted_ratio > dry_ratio * 1.5,
-        "sidechain did not lift matched content: dry={dry_ratio}, boosted={boosted_ratio}"
-    );
-    assert!(
-        boosted_peak <= dry_peak * 1.05,
-        "sidechain overdrives output peak: dry={dry_peak}, boosted={boosted_peak}"
-    );
-    assert!(
-        boosted_rms <= dry_rms * 1.05,
-        "sidechain overdrives output rms: dry={dry_rms}, boosted={boosted_rms}"
-    );
-}
-
-#[test]
 fn freeze_recaptures_on_second_rising_edge() {
     let sample_rate = 44_100.0;
     let mut processor = SpectralFreeze::default();
-    processor.prepare(sample_rate, 1, 0);
+    processor.prepare(sample_rate, 1);
 
     let mut first = sine_buffer(330.0, 0.2, sample_rate, FFT_SIZE * 5);
     let mut channels: [&mut [f32]; 1] = [&mut first];
     processor.process_block(
         &mut channels,
-        None,
         ProcessParams {
             freeze: true,
             ..Default::default()
@@ -323,13 +180,12 @@ fn freeze_recaptures_on_second_rising_edge() {
 
     let mut unfreeze = sine_buffer(880.0, 0.2, sample_rate, FFT_SIZE * 5);
     let mut channels: [&mut [f32]; 1] = [&mut unfreeze];
-    processor.process_block(&mut channels, None, ProcessParams::default());
+    processor.process_block(&mut channels, ProcessParams::default());
 
     let mut second = sine_buffer(880.0, 0.2, sample_rate, FFT_SIZE * 8);
     let mut channels: [&mut [f32]; 1] = [&mut second];
     processor.process_block(
         &mut channels,
-        None,
         ProcessParams {
             freeze: true,
             ..Default::default()
@@ -343,33 +199,6 @@ fn freeze_recaptures_on_second_rising_edge() {
     assert!(
         a880 > a330 * 2.0,
         "second freeze edge did not recapture new tone: 330={a330}, 880={a880}"
-    );
-}
-
-#[test]
-fn sidechain_can_be_enabled_while_freeze_is_already_on() {
-    let sample_rate = 44_100.0;
-    let len = FFT_SIZE * 10;
-    let mut processor = SpectralFreeze::default();
-    processor.prepare(sample_rate, 1, 1);
-    let mut main = sine_buffer(440.0, 0.2, sample_rate, len);
-    let mut sidechain = sine_buffer(440.0, 0.2, sample_rate, len);
-    let mut main_channels: [&mut [f32]; 1] = [&mut main];
-    let sc_channels: [&mut [f32]; 1] = [&mut sidechain];
-    processor.process_block(
-        &mut main_channels,
-        Some(&sc_channels),
-        ProcessParams {
-            freeze: true,
-            sc_boost_db: 9.0,
-            ..Default::default()
-        },
-    );
-    let stable = &main_channels[0][FFT_SIZE * 4..];
-    let rms = (stable.iter().map(|x| x * x).sum::<f32>() / stable.len() as f32).sqrt();
-    assert!(
-        rms > 0.01,
-        "freeze+sidechain startup produced no tone, rms={rms}"
     );
 }
 
@@ -423,17 +252,16 @@ fn instrument_note_triggers_assigned_pad_and_releases() {
     assignments[0] = Some(0);
 
     let mut instrument = FreezeInstrument::default();
-    instrument.prepare(sample_rate, 1, 0);
+    instrument.prepare(sample_rate, 1);
     instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
 
     let mut block = vec![0.0_f32; FFT_SIZE * 6];
     let mut channels: [&mut [f32]; 1] = [&mut block];
     instrument.process_block(
         &mut channels,
-        None,
         InstrumentProcessParams {
-            attack_s: 0.0,
-            release_s: 0.05,
+            mag_glide_s: 0.0,
+            phase_glide_s: 0.0,
             ..Default::default()
         },
         &pool,
@@ -442,14 +270,7 @@ fn instrument_note_triggers_assigned_pad_and_releases() {
     assert!(rms > 0.001, "assigned pad note produced silence, rms={rms}");
     assert!(instrument.active_pads()[0]);
 
-    instrument.note_off(
-        FIRST_PAD_MIDI_NOTE,
-        0,
-        InstrumentProcessParams {
-            release_s: 0.0,
-            ..Default::default()
-        },
-    );
+    instrument.note_off(FIRST_PAD_MIDI_NOTE, 0, InstrumentProcessParams::default());
     assert!(!instrument.active_pads()[0]);
 }
 
@@ -462,11 +283,8 @@ fn sustain_pedal_holds_note_off_until_released() {
     let mut assignments = [None; PAD_COUNT];
     assignments[0] = Some(0);
     let mut instrument = FreezeInstrument::default();
-    instrument.prepare(sample_rate, 1, 0);
-    let params = InstrumentProcessParams {
-        release_s: 0.0,
-        ..Default::default()
-    };
+    instrument.prepare(sample_rate, 1);
+    let params = InstrumentProcessParams::default();
 
     instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
     instrument.set_sustain(true, params);

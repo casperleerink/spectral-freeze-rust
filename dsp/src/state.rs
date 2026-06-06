@@ -152,25 +152,3 @@ impl ChannelState {
         }
     }
 }
-
-pub(crate) struct SidechainState {
-    pub(crate) input_fifo: Box<[f32; FFT_SIZE]>,
-    pub(crate) spectrum: Box<[Complex32; FFT_SIZE]>,
-    pub(crate) fifo_pos: usize,
-}
-
-impl SidechainState {
-    pub(crate) fn new() -> Self {
-        Self {
-            input_fifo: Box::new([0.0; FFT_SIZE]),
-            spectrum: Box::new([Complex32::new(0.0, 0.0); FFT_SIZE]),
-            fifo_pos: 0,
-        }
-    }
-
-    pub(crate) fn reset(&mut self) {
-        self.input_fifo.fill(0.0);
-        self.spectrum.fill(Complex32::new(0.0, 0.0));
-        self.fifo_pos = 0;
-    }
-}

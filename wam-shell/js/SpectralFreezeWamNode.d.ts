@@ -1,9 +1,4 @@
-export type SpectralFreezeParameterId =
-  | "freeze"
-  | "filter"
-  | "scBoost"
-  | "scFreqSmoothing"
-  | "organic";
+export type SpectralFreezeParameterId = "freeze" | "filter" | "organic";
 
 export interface SpectralFreezeParameterInfo {
   id: SpectralFreezeParameterId | string;
@@ -33,7 +28,6 @@ export interface SpectralFreezeWamCreateOptions {
   parameterInfo?: SpectralFreezeParameterInfo[];
   parameterRingCapacity?: number;
   mainChannels?: number;
-  sidechainChannels?: number;
   maxBlock?: number;
 }
 
@@ -42,7 +36,6 @@ export interface SpectralFreezeWamNodeOptions {
   parameterRing: SharedArrayBuffer;
   parameterInfo: SpectralFreezeParameterInfo[];
   mainChannels?: number;
-  sidechainChannels?: number;
   maxBlock?: number;
 }
 

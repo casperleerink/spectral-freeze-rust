@@ -19,11 +19,9 @@ pub struct ParamInfo {
 
 pub const PARAM_FREEZE: usize = 0;
 pub const PARAM_FILTER: usize = 1;
-pub const PARAM_SC_BOOST: usize = 2;
-pub const PARAM_SC_FREQ_SMOOTHING: usize = 3;
-pub const PARAM_ORGANIC: usize = 4;
+pub const PARAM_ORGANIC: usize = 2;
 
-pub const PARAMS: [ParamInfo; 5] = [
+pub const PARAMS: [ParamInfo; 3] = [
     ParamInfo {
         id: "freeze",
         name: "Freeze",
@@ -43,24 +41,6 @@ pub const PARAMS: [ParamInfo; 5] = [
         unit: "%",
     },
     ParamInfo {
-        id: "scBoost",
-        name: "SC Boost",
-        kind: ParamKind::Float,
-        min: 0.0,
-        max: 18.0,
-        default: 9.0,
-        unit: " dB",
-    },
-    ParamInfo {
-        id: "scFreqSmoothing",
-        name: "SC Freq Smooth",
-        kind: ParamKind::Float,
-        min: 0.0,
-        max: 1.0,
-        default: 0.25,
-        unit: "%",
-    },
-    ParamInfo {
         id: "organic",
         name: "Organic",
         kind: ParamKind::Float,
@@ -75,8 +55,6 @@ pub const PARAMS: [ParamInfo; 5] = [
 pub const PARAMETER_MANIFEST_JSON: &str = r#"[
   {"id":"freeze","name":"Freeze","kind":"bool","min":0.0,"max":1.0,"default":0.0,"unit":""},
   {"id":"filter","name":"Filter","kind":"float","min":0.0,"max":1.0,"default":0.0,"unit":"%"},
-  {"id":"scBoost","name":"SC Boost","kind":"float","min":0.0,"max":18.0,"default":9.0,"unit":" dB"},
-  {"id":"scFreqSmoothing","name":"SC Freq Smooth","kind":"float","min":0.0,"max":1.0,"default":0.25,"unit":"%"},
   {"id":"organic","name":"Organic","kind":"float","min":0.0,"max":1.0,"default":0.0,"unit":"%"}
 ]"#;
 
@@ -84,8 +62,6 @@ pub const PARAMETER_MANIFEST_JSON: &str = r#"[
 pub struct ProcessParams {
     pub freeze: bool,
     pub filter: f32,
-    pub sc_boost_db: f32,
-    pub sc_freq_smoothing: f32,
     pub organic: f32,
 }
 
@@ -94,20 +70,16 @@ impl Default for ProcessParams {
         Self {
             freeze: PARAMS[PARAM_FREEZE].default >= 0.5,
             filter: PARAMS[PARAM_FILTER].default,
-            sc_boost_db: PARAMS[PARAM_SC_BOOST].default,
-            sc_freq_smoothing: PARAMS[PARAM_SC_FREQ_SMOOTHING].default,
             organic: PARAMS[PARAM_ORGANIC].default,
         }
     }
 }
 
 impl ProcessParams {
-    pub fn from_values(values: [f32; 5]) -> Self {
+    pub fn from_values(values: [f32; 3]) -> Self {
         Self {
             freeze: values[PARAM_FREEZE] >= 0.5,
             filter: values[PARAM_FILTER],
-            sc_boost_db: values[PARAM_SC_BOOST],
-            sc_freq_smoothing: values[PARAM_SC_FREQ_SMOOTHING],
             organic: values[PARAM_ORGANIC],
         }
         .clamped()
@@ -117,8 +89,6 @@ impl ProcessParams {
         Self {
             freeze: self.freeze,
             filter: clamp(self.filter, 0.0, 1.0),
-            sc_boost_db: clamp(self.sc_boost_db, 0.0, 18.0),
-            sc_freq_smoothing: clamp(self.sc_freq_smoothing, 0.0, 1.0),
             organic: clamp(self.organic, 0.0, 1.0),
         }
     }
