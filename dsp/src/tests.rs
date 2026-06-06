@@ -358,6 +358,45 @@ fn projected_amp(samples: &[f32], freq: f32, sample_rate: f32) -> f32 {
 }
 
 #[test]
+fn captured_freeze_preserves_pitch_when_source_rate_differs_from_playback_rate() {
+    let source_sample_rate = 48_000.0;
+    let playback_sample_rate = 44_100.0;
+    let frequency = 440.0;
+    let source = vec![sine_buffer(
+        frequency,
+        0.3,
+        source_sample_rate,
+        FFT_SIZE * 8,
+    )];
+    let item = capture_freeze_from_audio(&source, source_sample_rate, FFT_SIZE * 4, None, 0.0)
+        .expect("capture should succeed");
+    let pool = vec![item];
+    let mut assignments = [None; PAD_COUNT];
+    assignments[0] = Some(0);
+    let mut instrument = FreezeInstrument::default();
+    instrument.prepare(playback_sample_rate, 1);
+
+    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
+    let rendered = render_instrument(
+        &mut instrument,
+        &pool,
+        expression_params(0.0, 0.0),
+        FFT_SIZE * 10,
+    );
+
+    let correct_pitch = projected_amp(&rendered, frequency, playback_sample_rate);
+    let uncorrected_pitch = projected_amp(
+        &rendered,
+        frequency * playback_sample_rate / source_sample_rate,
+        playback_sample_rate,
+    );
+    assert!(
+        correct_pitch > uncorrected_pitch * 1.5,
+        "source/playback sample-rate mismatch should not lower pitch: correct={correct_pitch}, uncorrected={uncorrected_pitch}"
+    );
+}
+
+#[test]
 fn fresh_note_seeds_directly_even_with_long_glide() {
     let (sample_rate, pool, assignments, mut instrument) = two_tone_instrument_fixture();
     let params = expression_params(5.0, 0.0);

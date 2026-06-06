@@ -239,7 +239,8 @@ impl Plugin for SpectralFreezePlugin {
         }
 
         let main = buffer.as_slice();
-        self.instrument.process_block(main, params, &self.cached_pool);
+        self.instrument
+            .process_block(main, params, &self.cached_pool);
 
         if audition_enabled && editor_recently_active {
             if let Some(item) = audition_item {

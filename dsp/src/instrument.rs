@@ -258,6 +258,14 @@ fn wrap_phase(phase: f32) -> f32 {
     (phase + PI).rem_euclid(2.0 * PI) - PI
 }
 
+fn phase_advance_rate_ratio(source_sample_rate: f32, playback_sample_rate: f32) -> f32 {
+    if source_sample_rate > 0.0 && playback_sample_rate > 0.0 {
+        source_sample_rate / playback_sample_rate
+    } else {
+        1.0
+    }
+}
+
 #[derive(Clone, Debug)]
 struct HeldNote {
     pad: usize,
@@ -374,6 +382,7 @@ impl MonoSpectralEngine {
         note: u8,
         channel: u8,
         velocity: f32,
+        playback_sample_rate: f32,
     ) {
         self.held_notes
             .retain(|held| held.note != note || held.channel != channel);
@@ -393,7 +402,7 @@ impl MonoSpectralEngine {
         self.gate = true;
 
         if fresh_articulation {
-            self.seed_from_target(item);
+            self.seed_from_target(item, playback_sample_rate);
             self.clear_output_buffers();
         }
     }
@@ -441,11 +450,13 @@ impl MonoSpectralEngine {
         active
     }
 
-    fn seed_from_target(&mut self, item: &CapturedFreeze) {
+    fn seed_from_target(&mut self, item: &CapturedFreeze, playback_sample_rate: f32) {
         if item.channels.is_empty() {
             return;
         }
 
+        let phase_rate_ratio =
+            phase_advance_rate_ratio(item.source_sample_rate, playback_sample_rate);
         for out_ch in 0..self.current_mag.len() {
             let src_ch = out_ch.min(item.channels.len() - 1);
             let channel = &item.channels[src_ch];
@@ -460,7 +471,8 @@ impl MonoSpectralEngine {
                     .phase_advance
                     .get(k)
                     .copied()
-                    .unwrap_or_else(|| phase_advance_for_bin(k));
+                    .unwrap_or_else(|| phase_advance_for_bin(k))
+                    * phase_rate_ratio;
             }
         }
     }
@@ -510,7 +522,8 @@ impl MonoSpectralEngine {
                     .phase_advance
                     .get(k)
                     .copied()
-                    .unwrap_or_else(|| phase_advance_for_bin(k));
+                    .unwrap_or_else(|| phase_advance_for_bin(k))
+                    * phase_advance_rate_ratio(item.source_sample_rate, sample_rate);
 
                 self.current_mag[out_ch][k] +=
                     mag_coeff * (target_mag - self.current_mag[out_ch][k]);
@@ -640,8 +653,15 @@ impl FreezeInstrument {
         let Some(item) = pool.get(item_index) else {
             return;
         };
-        self.engine
-            .note_on(pad, item_index, item, note, channel, velocity);
+        self.engine.note_on(
+            pad,
+            item_index,
+            item,
+            note,
+            channel,
+            velocity,
+            self.sample_rate,
+        );
     }
 
     pub fn note_off(&mut self, note: u8, channel: u8, _params: InstrumentProcessParams) {
