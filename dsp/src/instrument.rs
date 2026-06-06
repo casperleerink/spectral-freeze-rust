@@ -8,6 +8,7 @@ use crate::processor::{
     SpectralFreeze, apply_synthesis_window, normalize_inverse_fft, rebuild_conjugate_mirror,
 };
 use crate::random::JuceRandom;
+use crate::stft::{calculate_window_gain, fill_hann_window, phase_advance_for_bin};
 use rustfft::{Fft, FftPlanner, num_complex::Complex32};
 use std::f32::consts::PI;
 use std::sync::Arc;
@@ -194,9 +195,7 @@ pub fn capture_freeze_from_audio(
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(FFT_SIZE);
     let mut window = [0.0_f32; FFT_SIZE];
-    for n in 0..FFT_SIZE {
-        window[n] = 0.5 - 0.5 * (2.0 * PI * n as f32 / FFT_SIZE as f32).cos();
-    }
+    fill_hann_window(&mut window);
 
     let mut channels = Vec::with_capacity(source_channels.len().min(2));
     let mut scratch = [Complex32::new(0.0, 0.0); FFT_SIZE];
@@ -218,7 +217,7 @@ pub fn capture_freeze_from_audio(
 
             for k in 0..NUM_BINS {
                 let c = scratch[k];
-                let bin_phase_advance = 2.0 * PI * k as f32 * HOP_SIZE as f32 / FFT_SIZE as f32;
+                let bin_phase_advance = phase_advance_for_bin(k);
                 let bin_phase = c.im.atan2(c.re);
                 mag_sum[k] += c.norm();
 
@@ -533,21 +532,8 @@ impl FreezeInstrument {
             44_100.0
         };
         self.output_channels = output_channels.max(1);
-        for n in 0..FFT_SIZE {
-            self.window[n] = 0.5 - 0.5 * (2.0 * PI * n as f32 / FFT_SIZE as f32).cos();
-        }
-        let mut cola_sum = 0.0;
-        let mut k = 0;
-        while k * HOP_SIZE < FFT_SIZE {
-            let w = self.window[k * HOP_SIZE];
-            cola_sum += w * w;
-            k += 1;
-        }
-        self.window_gain = if cola_sum > 0.0 {
-            cola_sum.recip()
-        } else {
-            1.0
-        };
+        fill_hann_window(self.window.as_mut());
+        self.window_gain = calculate_window_gain(self.window.as_ref());
 
         if self.voices.len() != MAX_INSTRUMENT_VOICES {
             self.voices = (0..MAX_INSTRUMENT_VOICES)

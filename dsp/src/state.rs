@@ -102,10 +102,27 @@ impl StftChannelState {
     }
 }
 
+pub(crate) struct OrganicScratch {
+    pub(crate) mag: [f32; NUM_BINS],
+    pub(crate) phase: [f32; NUM_BINS],
+    pub(crate) shaped_mag: [f32; NUM_BINS],
+}
+
+impl Default for OrganicScratch {
+    fn default() -> Self {
+        Self {
+            mag: [0.0; NUM_BINS],
+            phase: [0.0; NUM_BINS],
+            shaped_mag: [0.0; NUM_BINS],
+        }
+    }
+}
+
 pub(crate) struct ChannelState {
     pub(crate) stft: StftChannelState,
     pub(crate) freeze: FreezeState,
     pub(crate) organic_am: OrganicAmState,
+    pub(crate) organic_scratch: OrganicScratch,
     pub(crate) rng: JuceRandom,
 }
 
@@ -120,6 +137,7 @@ impl ChannelState {
             stft: StftChannelState::new(),
             freeze: FreezeState::default(),
             organic_am,
+            organic_scratch: OrganicScratch::default(),
             rng,
         }
     }

@@ -11,6 +11,7 @@ mod params;
 mod processor;
 mod random;
 mod state;
+mod stft;
 
 pub use constants::*;
 pub use instrument::*;

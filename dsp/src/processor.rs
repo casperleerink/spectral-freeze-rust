@@ -1,7 +1,8 @@
 use crate::constants::*;
 use crate::params::ProcessParams;
 use crate::random::JuceRandom;
-use crate::state::{ChannelState, FreezeState, OrganicAmState, SidechainState};
+use crate::state::{ChannelState, FreezeState, OrganicAmState, OrganicScratch, SidechainState};
+use crate::stft::{calculate_window_gain, fill_hann_window, fill_phase_advance};
 use rustfft::{Fft, FftPlanner, num_complex::Complex32};
 use std::f32::consts::PI;
 use std::sync::Arc;
@@ -72,26 +73,9 @@ impl SpectralFreeze {
             self.sc_channels.push(SidechainState::new());
         }
 
-        for n in 0..FFT_SIZE {
-            self.window[n] = 0.5 - 0.5 * (2.0 * PI * n as f32 / FFT_SIZE as f32).cos();
-        }
-
-        let mut cola_sum = 0.0;
-        let mut k = 0;
-        while k * HOP_SIZE < FFT_SIZE {
-            let w = self.window[k * HOP_SIZE];
-            cola_sum += w * w;
-            k += 1;
-        }
-        self.window_gain = if cola_sum > 0.0 {
-            cola_sum.recip()
-        } else {
-            1.0
-        };
-
-        for k in 0..NUM_BINS {
-            self.phase_advance[k] = 2.0 * PI * k as f32 * HOP_SIZE as f32 / FFT_SIZE as f32;
-        }
+        fill_hann_window(self.window.as_mut());
+        self.window_gain = calculate_window_gain(self.window.as_ref());
+        fill_phase_advance(self.phase_advance.as_mut());
 
         self.sc_latest_mag.fill(0.0);
         self.sc_smoothed_mag.fill(0.0);
@@ -255,6 +239,7 @@ impl SpectralFreeze {
         apply_organic_spectral_processing(
             state.stft.spectrum.as_mut(),
             &mut state.rng,
+            &mut state.organic_scratch,
             params.organic,
             params.filter,
         );
@@ -479,6 +464,7 @@ pub(crate) fn rebuild_conjugate_mirror(spectrum: &mut [Complex32; FFT_SIZE]) {
 fn apply_organic_spectral_processing(
     spectrum: &mut [Complex32; FFT_SIZE],
     rng: &mut JuceRandom,
+    scratch: &mut OrganicScratch,
     organic_amt: f32,
     filter_amt: f32,
 ) {
@@ -487,9 +473,9 @@ fn apply_organic_spectral_processing(
     }
 
     let smooth_amt = organic_amt * (0.30 + 0.60 * filter_amt);
-    let mut mag = [0.0_f32; NUM_BINS];
-    let mut phase = [0.0_f32; NUM_BINS];
-    let mut shaped_mag = [0.0_f32; NUM_BINS];
+    let mag = &mut scratch.mag;
+    let phase = &mut scratch.phase;
+    let shaped_mag = &mut scratch.shaped_mag;
 
     let mut peak = 0.0;
     for k in 0..NUM_BINS {
