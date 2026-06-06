@@ -10,6 +10,21 @@ Rust port of the JUCE [spectral-freeze](https://github.com/casperleerink/spectra
 
 ## Build and verify
 
+For fast standalone development with auto rebuild/relaunch:
+
+```sh
+brew install watchexec
+./scripts/dev-standalone-watch.sh
+```
+
+Pass standalone audio options after the script if needed:
+
+```sh
+./scripts/dev-standalone-watch.sh --sample-rate 48000 --period-size 512
+```
+
+For release/package validation:
+
 ```sh
 cargo test --workspace
 cargo build -p spectral-freeze-wam --target wasm32-unknown-unknown --release
