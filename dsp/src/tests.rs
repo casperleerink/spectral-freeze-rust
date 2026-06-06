@@ -260,8 +260,7 @@ fn instrument_note_triggers_assigned_pad_and_releases() {
     instrument.process_block(
         &mut channels,
         InstrumentProcessParams {
-            mag_glide_s: 0.0,
-            phase_glide_s: 0.0,
+            glide_s: 0.0,
             ..Default::default()
         },
         &pool,
@@ -297,5 +296,162 @@ fn sustain_pedal_holds_note_off_until_released() {
     assert!(
         !instrument.active_pads()[0],
         "pedal up should release sustained note"
+    );
+}
+
+fn two_tone_instrument_fixture() -> (
+    f32,
+    Vec<CapturedFreeze>,
+    [Option<usize>; PAD_COUNT],
+    FreezeInstrument,
+) {
+    let sample_rate = 44_100.0;
+    let item_a = capture_freeze_from_audio(
+        &[sine_buffer(330.0, 0.3, sample_rate, FFT_SIZE * 8)],
+        sample_rate,
+        FFT_SIZE * 4,
+        None,
+        0.0,
+    )
+    .unwrap();
+    let item_b = capture_freeze_from_audio(
+        &[sine_buffer(880.0, 0.3, sample_rate, FFT_SIZE * 8)],
+        sample_rate,
+        FFT_SIZE * 4,
+        None,
+        0.0,
+    )
+    .unwrap();
+    let pool = vec![item_a, item_b];
+    let mut assignments = [None; PAD_COUNT];
+    assignments[0] = Some(0);
+    assignments[1] = Some(1);
+    let mut instrument = FreezeInstrument::default();
+    instrument.prepare(sample_rate, 1);
+    (sample_rate, pool, assignments, instrument)
+}
+
+fn expression_params(glide_s: f32, release_s: f32) -> InstrumentProcessParams {
+    InstrumentProcessParams {
+        attack_s: 0.0,
+        release_s,
+        glide_s,
+        organic: 0.0,
+    }
+}
+
+fn render_instrument(
+    instrument: &mut FreezeInstrument,
+    pool: &[CapturedFreeze],
+    params: InstrumentProcessParams,
+    len: usize,
+) -> Vec<f32> {
+    let mut block = vec![0.0_f32; len];
+    let mut channels: [&mut [f32]; 1] = [&mut block];
+    instrument.process_block(&mut channels, params, pool);
+    block
+}
+
+fn projected_amp(samples: &[f32], freq: f32, sample_rate: f32) -> f32 {
+    let start = samples.len() / 2;
+    sine_projection(&samples[start..], freq, sample_rate, start)
+}
+
+#[test]
+fn fresh_note_seeds_directly_even_with_long_glide() {
+    let (sample_rate, pool, assignments, mut instrument) = two_tone_instrument_fixture();
+    let params = expression_params(5.0, 0.0);
+
+    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
+    let rendered = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 8);
+
+    let a330 = projected_amp(&rendered, 330.0, sample_rate);
+    let a880 = projected_amp(&rendered, 880.0, sample_rate);
+    assert!(
+        a330 > a880 * 2.0,
+        "fresh note should seed from its target, not glide from silence: 330={a330}, 880={a880}"
+    );
+}
+
+#[test]
+fn legato_note_on_moves_to_newest_target_without_layering() {
+    let (sample_rate, pool, assignments, mut instrument) = two_tone_instrument_fixture();
+    let params = expression_params(0.0, 0.0);
+
+    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
+    let _ = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 4);
+    instrument.note_on(FIRST_PAD_MIDI_NOTE + 1, 0, 1.0, &pool, &assignments);
+    let rendered = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 8);
+
+    let active = instrument.active_pads();
+    assert!(active[0] && active[1], "both legato notes should be held");
+    let a330 = projected_amp(&rendered, 330.0, sample_rate);
+    let a880 = projected_amp(&rendered, 880.0, sample_rate);
+    assert!(
+        a880 > a330 * 1.5,
+        "newest legato note should become the mono target, not layer with A: 330={a330}, 880={a880}"
+    );
+}
+
+#[test]
+fn releasing_latest_note_returns_to_previous_held_note() {
+    let (sample_rate, pool, assignments, mut instrument) = two_tone_instrument_fixture();
+    let params = expression_params(0.0, 0.0);
+
+    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
+    let _ = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 4);
+    instrument.note_on(FIRST_PAD_MIDI_NOTE + 1, 0, 1.0, &pool, &assignments);
+    let _ = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 4);
+    instrument.note_off(FIRST_PAD_MIDI_NOTE + 1, 0, params);
+    let rendered = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 8);
+
+    let active = instrument.active_pads();
+    assert!(active[0], "previous note should remain active");
+    assert!(
+        !active[1],
+        "released latest note should no longer be active"
+    );
+    let a330 = projected_amp(&rendered, 330.0, sample_rate);
+    let a880 = projected_amp(&rendered, 880.0, sample_rate);
+    assert!(
+        a330 > a880 * 1.5,
+        "releasing newest note should return to A: 330={a330}, 880={a880}"
+    );
+}
+
+#[test]
+fn final_release_closes_gate_to_silence() {
+    let (_sample_rate, pool, assignments, mut instrument) = two_tone_instrument_fixture();
+    let params = expression_params(0.0, 0.0);
+
+    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
+    let _ = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 4);
+    instrument.note_off(FIRST_PAD_MIDI_NOTE, 0, params);
+    let rendered = render_instrument(&mut instrument, &pool, params, HOP_SIZE * 2);
+
+    let rms = (rendered.iter().map(|x| x * x).sum::<f32>() / rendered.len() as f32).sqrt();
+    assert!(
+        rms < 1.0e-6,
+        "final release should close the gate, rms={rms}"
+    );
+}
+
+#[test]
+fn detached_note_after_silence_does_not_glide_from_stale_state() {
+    let (sample_rate, pool, assignments, mut instrument) = two_tone_instrument_fixture();
+    let params = expression_params(5.0, 0.0);
+
+    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
+    let _ = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 4);
+    instrument.note_off(FIRST_PAD_MIDI_NOTE, 0, params);
+    let _ = render_instrument(&mut instrument, &pool, params, FFT_SIZE);
+    instrument.note_on(FIRST_PAD_MIDI_NOTE + 1, 0, 1.0, &pool, &assignments);
+    let rendered = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 8);
+
+    let a330 = projected_amp(&rendered, 330.0, sample_rate);
+    let a880 = projected_amp(&rendered, 880.0, sample_rate);
+    assert!(
+        a880 > a330 * 2.0,
+        "detached B should seed directly instead of gliding from stale A: 330={a330}, 880={a880}"
     );
 }

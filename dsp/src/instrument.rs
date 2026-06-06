@@ -15,27 +15,37 @@ use std::sync::Arc;
 pub const PAD_COUNT: usize = 16;
 pub const FIRST_PAD_MIDI_NOTE: u8 = 36; // C1 through D#2
 
-pub const PARAM_MAG_GLIDE: usize = 0;
-pub const PARAM_PHASE_GLIDE: usize = 1;
-pub const PARAM_INSTRUMENT_ORGANIC: usize = 2;
+pub const PARAM_ATTACK: usize = 0;
+pub const PARAM_RELEASE: usize = 1;
+pub const PARAM_GLIDE: usize = 2;
+pub const PARAM_INSTRUMENT_ORGANIC: usize = 3;
 
-pub const INSTRUMENT_PARAMS: [ParamInfo; 3] = [
+pub const INSTRUMENT_PARAMS: [ParamInfo; 4] = [
     ParamInfo {
-        id: "magGlide",
-        name: "Mag Glide",
+        id: "attack",
+        name: "Attack",
+        kind: ParamKind::Float,
+        min: 0.0,
+        max: 5.0,
+        default: 0.008,
+        unit: " s",
+    },
+    ParamInfo {
+        id: "release",
+        name: "Release",
+        kind: ParamKind::Float,
+        min: 0.0,
+        max: 10.0,
+        default: 0.180,
+        unit: " s",
+    },
+    ParamInfo {
+        id: "glide",
+        name: "Glide",
         kind: ParamKind::Float,
         min: 0.0,
         max: 5.0,
         default: 0.250,
-        unit: " s",
-    },
-    ParamInfo {
-        id: "phaseGlide",
-        name: "Phase Glide",
-        kind: ParamKind::Float,
-        min: 0.0,
-        max: 5.0,
-        default: 0.500,
         unit: " s",
     },
     ParamInfo {
@@ -51,16 +61,18 @@ pub const INSTRUMENT_PARAMS: [ParamInfo; 3] = [
 
 #[derive(Clone, Copy, Debug)]
 pub struct InstrumentProcessParams {
-    pub mag_glide_s: f32,
-    pub phase_glide_s: f32,
+    pub attack_s: f32,
+    pub release_s: f32,
+    pub glide_s: f32,
     pub organic: f32,
 }
 
 impl Default for InstrumentProcessParams {
     fn default() -> Self {
         Self {
-            mag_glide_s: INSTRUMENT_PARAMS[PARAM_MAG_GLIDE].default,
-            phase_glide_s: INSTRUMENT_PARAMS[PARAM_PHASE_GLIDE].default,
+            attack_s: INSTRUMENT_PARAMS[PARAM_ATTACK].default,
+            release_s: INSTRUMENT_PARAMS[PARAM_RELEASE].default,
+            glide_s: INSTRUMENT_PARAMS[PARAM_GLIDE].default,
             organic: INSTRUMENT_PARAMS[PARAM_INSTRUMENT_ORGANIC].default,
         }
     }
@@ -69,8 +81,9 @@ impl Default for InstrumentProcessParams {
 impl InstrumentProcessParams {
     pub fn clamped(self) -> Self {
         Self {
-            mag_glide_s: clamp(self.mag_glide_s, 0.0, 5.0),
-            phase_glide_s: clamp(self.phase_glide_s, 0.0, 5.0),
+            attack_s: clamp(self.attack_s, 0.0, 5.0),
+            release_s: clamp(self.release_s, 0.0, 10.0),
+            glide_s: clamp(self.glide_s, 0.0, 5.0),
             organic: clamp(self.organic, 0.0, 1.0),
         }
     }
@@ -222,8 +235,8 @@ fn format_time(seconds: f32) -> String {
     format!("{minutes:02}:{secs:02}.{millis:03}")
 }
 
-const GATE_ATTACK_S: f32 = 0.008;
-const GATE_RELEASE_S: f32 = 0.180;
+const PHASE_GLIDE_RATIO: f32 = 1.0;
+const SILENCE_AMP: f32 = 1.0e-5;
 
 fn glide_coeff(time_s: f32, sample_rate: f32) -> f32 {
     if time_s <= 0.0 || sample_rate <= 0.0 {
@@ -245,16 +258,20 @@ fn wrap_phase(phase: f32) -> f32 {
     (phase + PI).rem_euclid(2.0 * PI) - PI
 }
 
-struct MonoSpectralEngine {
-    active: bool,
-    gate: bool,
-    target_pad: Option<usize>,
-    target_item_index: Option<usize>,
-    last_note: u8,
-    last_channel: u8,
+#[derive(Clone, Debug)]
+struct HeldNote {
+    pad: usize,
+    item_index: usize,
+    note: u8,
+    channel: u8,
     velocity: f32,
-    physical_pads: [bool; PAD_COUNT],
-    held_pads: [bool; PAD_COUNT],
+    physically_held: bool,
+}
+
+struct MonoSpectralEngine {
+    gate: bool,
+    held_notes: Vec<HeldNote>,
+    active_target: Option<HeldNote>,
     sustain_down: bool,
     current_mag: Vec<Box<[f32; NUM_BINS]>>,
     current_phase: Vec<Box<[f32; NUM_BINS]>>,
@@ -272,15 +289,9 @@ struct MonoSpectralEngine {
 impl MonoSpectralEngine {
     fn new(output_channels: usize) -> Self {
         let mut this = Self {
-            active: false,
             gate: false,
-            target_pad: None,
-            target_item_index: None,
-            last_note: FIRST_PAD_MIDI_NOTE,
-            last_channel: 0,
-            velocity: 0.0,
-            physical_pads: [false; PAD_COUNT],
-            held_pads: [false; PAD_COUNT],
+            held_notes: Vec::new(),
+            active_target: None,
             sustain_down: false,
             current_mag: Vec::new(),
             current_phase: Vec::new(),
@@ -322,15 +333,9 @@ impl MonoSpectralEngine {
     }
 
     fn reset(&mut self) {
-        self.active = false;
         self.gate = false;
-        self.target_pad = None;
-        self.target_item_index = None;
-        self.last_note = FIRST_PAD_MIDI_NOTE;
-        self.last_channel = 0;
-        self.velocity = 0.0;
-        self.physical_pads = [false; PAD_COUNT];
-        self.held_pads = [false; PAD_COUNT];
+        self.held_notes.clear();
+        self.active_target = None;
         self.sustain_down = false;
         self.amp = 0.0;
         self.clear_spectral_state();
@@ -361,67 +366,80 @@ impl MonoSpectralEngine {
         self.hop_counter = HOP_SIZE;
     }
 
-    fn set_target(
+    fn note_on(
         &mut self,
-        pad_index: usize,
+        pad: usize,
         item_index: usize,
         item: &CapturedFreeze,
         note: u8,
         channel: u8,
         velocity: f32,
     ) {
-        let should_seed = !self.active || self.spectral_energy() <= 1.0e-8;
-        self.active = true;
-        self.gate = true;
-        self.target_pad = Some(pad_index);
-        self.target_item_index = Some(item_index);
-        self.last_note = note;
-        self.last_channel = channel;
-        self.velocity = clamp(velocity, 0.0, 1.0);
-        self.physical_pads[pad_index] = true;
-        self.held_pads[pad_index] = true;
+        self.held_notes
+            .retain(|held| held.note != note || held.channel != channel);
 
-        if should_seed {
+        let fresh_articulation =
+            self.held_notes.is_empty() && (!self.gate || self.amp <= SILENCE_AMP);
+        let held = HeldNote {
+            pad,
+            item_index,
+            note,
+            channel,
+            velocity: clamp(velocity, 0.0, 1.0),
+            physically_held: true,
+        };
+        self.held_notes.push(held.clone());
+        self.active_target = Some(held);
+        self.gate = true;
+
+        if fresh_articulation {
             self.seed_from_target(item);
+            self.clear_output_buffers();
         }
     }
 
-    fn note_off(&mut self, pad_index: usize) {
-        self.physical_pads[pad_index] = false;
-        if !self.sustain_down {
-            self.held_pads[pad_index] = false;
-            if !self.held_pads.iter().any(|&held| held) {
-                self.gate = false;
+    fn note_off(&mut self, note: u8, channel: u8) {
+        if self.sustain_down {
+            for held in &mut self.held_notes {
+                if held.note == note && held.channel == channel {
+                    held.physically_held = false;
+                }
             }
+        } else {
+            self.held_notes
+                .retain(|held| held.note != note || held.channel != channel);
         }
+        self.recompute_active_target();
     }
 
     fn set_sustain(&mut self, down: bool) {
         if self.sustain_down && !down {
-            self.held_pads = self.physical_pads;
-            if !self.held_pads.iter().any(|&held| held) {
-                self.gate = false;
-            }
+            self.held_notes.retain(|held| held.physically_held);
+            self.recompute_active_target();
         }
         self.sustain_down = down;
     }
 
+    fn recompute_active_target(&mut self) {
+        self.active_target = self.held_notes.last().cloned();
+        self.gate = self.active_target.is_some();
+    }
+
     fn active_pads(&self) -> [bool; PAD_COUNT] {
-        let mut active = self.held_pads;
+        let mut active = [false; PAD_COUNT];
+        for held in &self.held_notes {
+            if held.pad < PAD_COUNT {
+                active[held.pad] = true;
+            }
+        }
         if self.gate {
-            if let Some(pad) = self.target_pad.filter(|&pad| pad < PAD_COUNT) {
-                active[pad] = true;
+            if let Some(target) = &self.active_target {
+                if target.pad < PAD_COUNT {
+                    active[target.pad] = true;
+                }
             }
         }
         active
-    }
-
-    fn spectral_energy(&self) -> f32 {
-        self.current_mag
-            .iter()
-            .flat_map(|ch| ch.iter())
-            .map(|mag| mag.abs())
-            .sum()
     }
 
     fn seed_from_target(&mut self, item: &CapturedFreeze) {
@@ -461,8 +479,8 @@ impl MonoSpectralEngine {
             return;
         }
 
-        let mag_coeff = glide_coeff(params.mag_glide_s, sample_rate);
-        let phase_coeff = glide_coeff(params.phase_glide_s, sample_rate);
+        let mag_coeff = glide_coeff(params.glide_s, sample_rate);
+        let phase_coeff = glide_coeff(params.glide_s * PHASE_GLIDE_RATIO, sample_rate);
         let organic_amt = params.organic;
 
         for out_ch in 0..self.output_fifo.len() {
@@ -541,16 +559,23 @@ impl MonoSpectralEngine {
         }
     }
 
-    fn next_amp(&mut self, sample_rate: f32) -> f32 {
-        let target = if self.gate { self.velocity } else { 0.0 };
-        let time_s = if target > self.amp {
-            GATE_ATTACK_S
+    fn next_amp(&mut self, sample_rate: f32, params: InstrumentProcessParams) -> f32 {
+        let target = if self.gate {
+            self.active_target
+                .as_ref()
+                .map(|target| target.velocity)
+                .unwrap_or(0.0)
         } else {
-            GATE_RELEASE_S
+            0.0
+        };
+        let time_s = if target > self.amp {
+            params.attack_s
+        } else {
+            params.release_s
         };
         let coeff = one_pole_coeff(time_s, sample_rate);
         self.amp += coeff * (target - self.amp);
-        if target <= 0.0 && self.amp.abs() < 1.0e-5 {
+        if target <= 0.0 && self.amp.abs() < SILENCE_AMP {
             self.amp = 0.0;
         }
         self.amp
@@ -617,14 +642,14 @@ impl FreezeInstrument {
             return;
         };
         self.engine
-            .set_target(pad, item_index, item, note, channel, velocity);
+            .note_on(pad, item_index, item, note, channel, velocity);
     }
 
-    pub fn note_off(&mut self, note: u8, _channel: u8, _params: InstrumentProcessParams) {
-        let Some(pad) = note_to_pad(note) else {
+    pub fn note_off(&mut self, note: u8, channel: u8, _params: InstrumentProcessParams) {
+        if note_to_pad(note).is_none() {
             return;
-        };
-        self.engine.note_off(pad);
+        }
+        self.engine.note_off(note, channel);
     }
 
     pub fn set_sustain(&mut self, down: bool, _params: InstrumentProcessParams) {
@@ -671,7 +696,12 @@ impl FreezeInstrument {
 
         for n in 0..num_samples {
             if self.engine.hop_counter >= HOP_SIZE {
-                if let Some(item_index) = self.engine.target_item_index {
+                if let Some(item_index) = self
+                    .engine
+                    .active_target
+                    .as_ref()
+                    .map(|target| target.item_index)
+                {
                     if let Some(item) = pool.get(item_index) {
                         self.engine.render_frame(
                             item,
@@ -682,15 +712,16 @@ impl FreezeInstrument {
                             &self.inverse_fft,
                         );
                     } else {
-                        self.engine.active = false;
-                        self.engine.gate = false;
-                        self.engine.target_item_index = None;
+                        self.engine
+                            .held_notes
+                            .retain(|held| held.item_index != item_index);
+                        self.engine.recompute_active_target();
                     }
                 }
                 self.engine.hop_counter = 0;
             }
 
-            let amp = self.engine.next_amp(self.sample_rate);
+            let amp = self.engine.next_amp(self.sample_rate, params);
             for ch in 0..channels {
                 main[ch][n] += self.engine.output_fifo[ch][self.engine.fifo_pos] * amp;
                 self.engine.output_fifo[ch][self.engine.fifo_pos] = 0.0;

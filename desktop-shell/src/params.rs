@@ -1,5 +1,5 @@
 use crate::state::InstrumentState;
-use dsp::{INSTRUMENT_PARAMS, PARAM_INSTRUMENT_ORGANIC, PARAM_MAG_GLIDE, PARAM_PHASE_GLIDE};
+use dsp::{INSTRUMENT_PARAMS, PARAM_ATTACK, PARAM_GLIDE, PARAM_INSTRUMENT_ORGANIC, PARAM_RELEASE};
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
 use std::sync::{Arc, Mutex};
@@ -12,10 +12,12 @@ pub struct SpectralFreezeParams {
     #[persist = "instrument-state"]
     pub(crate) instrument_state: Arc<Mutex<InstrumentState>>,
 
-    #[id = "magGlide"]
-    pub mag_glide: FloatParam,
-    #[id = "phaseGlide"]
-    pub phase_glide: FloatParam,
+    #[id = "attack"]
+    pub attack: FloatParam,
+    #[id = "release"]
+    pub release: FloatParam,
+    #[id = "glide"]
+    pub glide: FloatParam,
     #[id = "organic"]
     pub organic: FloatParam,
 }
@@ -36,17 +38,28 @@ impl Default for SpectralFreezeParams {
         Self {
             editor_state: EguiState::from_size(980, 720),
             instrument_state: Arc::new(Mutex::new(InstrumentState::default())),
-            mag_glide: FloatParam::new(
-                INSTRUMENT_PARAMS[PARAM_MAG_GLIDE].name,
-                INSTRUMENT_PARAMS[PARAM_MAG_GLIDE].default,
+            attack: FloatParam::new(
+                INSTRUMENT_PARAMS[PARAM_ATTACK].name,
+                INSTRUMENT_PARAMS[PARAM_ATTACK].default,
                 FloatRange::Linear { min: 0.0, max: 5.0 },
             )
             .with_step_size(0.001)
             .with_value_to_string(seconds.clone())
             .with_string_to_value(seconds_from_string.clone()),
-            phase_glide: FloatParam::new(
-                INSTRUMENT_PARAMS[PARAM_PHASE_GLIDE].name,
-                INSTRUMENT_PARAMS[PARAM_PHASE_GLIDE].default,
+            release: FloatParam::new(
+                INSTRUMENT_PARAMS[PARAM_RELEASE].name,
+                INSTRUMENT_PARAMS[PARAM_RELEASE].default,
+                FloatRange::Linear {
+                    min: 0.0,
+                    max: 10.0,
+                },
+            )
+            .with_step_size(0.001)
+            .with_value_to_string(seconds.clone())
+            .with_string_to_value(seconds_from_string.clone()),
+            glide: FloatParam::new(
+                INSTRUMENT_PARAMS[PARAM_GLIDE].name,
+                INSTRUMENT_PARAMS[PARAM_GLIDE].default,
                 FloatRange::Linear { min: 0.0, max: 5.0 },
             )
             .with_step_size(0.001)

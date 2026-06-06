@@ -54,8 +54,9 @@ impl Default for SpectralFreezePlugin {
 impl SpectralFreezePlugin {
     fn current_params(&self) -> InstrumentProcessParams {
         InstrumentProcessParams {
-            mag_glide_s: self.params.mag_glide.value(),
-            phase_glide_s: self.params.phase_glide.value(),
+            attack_s: self.params.attack.value(),
+            release_s: self.params.release.value(),
+            glide_s: self.params.glide.value(),
             organic: self.params.organic.value(),
         }
     }

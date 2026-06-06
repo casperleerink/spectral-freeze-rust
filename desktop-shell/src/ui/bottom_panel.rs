@@ -17,14 +17,11 @@ pub(super) fn draw_bottom_panel(
         .corner_radius(12.0)
         .inner_margin(10.0)
         .show(ui, |ui| {
-            ui.label(
-                RichText::new("Spectral Motion + Organic")
-                    .strong()
-                    .color(theme.fg),
-            );
+            ui.label(RichText::new("Expression").strong().color(theme.fg));
             ui.horizontal_wrapped(|ui| {
-                draw_param_knob(ui, setter, &params.mag_glide, "Mag Glide", theme);
-                draw_param_knob(ui, setter, &params.phase_glide, "Phase Glide", theme);
+                draw_param_knob(ui, setter, &params.attack, "Attack", theme);
+                draw_param_knob(ui, setter, &params.release, "Release", theme);
+                draw_param_knob(ui, setter, &params.glide, "Glide", theme);
                 draw_param_knob(ui, setter, &params.organic, "Organic", theme);
             });
             ui.label(
