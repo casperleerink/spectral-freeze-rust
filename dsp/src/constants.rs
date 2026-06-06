@@ -1,0 +1,9 @@
+pub const FFT_ORDER: usize = 11;
+pub const FFT_SIZE: usize = 1 << FFT_ORDER;
+pub const HOP_SIZE: usize = FFT_SIZE / 4;
+pub const NUM_BINS: usize = FFT_SIZE / 2 + 1;
+pub const MAG_HISTORY_SIZE: usize = 4;
+pub const FREEZE_PHASE_JITTER_RADIANS: f32 = 0.004;
+pub const ORGANIC_AM_BANDS: usize = 12;
+pub const SPECTRUM_DISPLAY_BINS: usize = 96;
+pub const LATENCY_SAMPLES: u32 = FFT_SIZE as u32;
