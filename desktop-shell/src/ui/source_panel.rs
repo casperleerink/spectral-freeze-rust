@@ -46,20 +46,18 @@ pub(super) fn draw_source_panel(
                         egui::Button::new("Capture").fill(theme.accent.gamma_multiply(0.35)),
                     )
                     .clicked()
+                    && let Some(source) = &runtime.source
+                    && let Some(item) = capture_freeze_from_audio(
+                        &source.channels,
+                        source.sample_rate,
+                        state.source_cursor_sample,
+                        Some(&source.path.to_string_lossy()),
+                        state.contextual_filter,
+                    )
                 {
-                    if let Some(source) = &runtime.source {
-                        if let Some(item) = capture_freeze_from_audio(
-                            &source.channels,
-                            source.sample_rate,
-                            state.source_cursor_sample,
-                            Some(&source.path.to_string_lossy()),
-                            state.contextual_filter,
-                        ) {
-                            state.pool.push(item);
-                            state.mark_audio_state_changed();
-                            state.selection = Selection::Pool(state.pool.len() - 1);
-                        }
-                    }
+                    state.pool.push(item);
+                    state.mark_audio_state_changed();
+                    state.selection = Selection::Pool(state.pool.len() - 1);
                 }
             });
 

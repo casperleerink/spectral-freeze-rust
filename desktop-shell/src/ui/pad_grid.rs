@@ -79,14 +79,12 @@ pub(super) fn draw_pad_grid(
                                 }
                                 if response.contains_pointer()
                                     && ui.input(|i| i.pointer.any_released())
+                                    && let Some(idx) = runtime.drag_pool_item.take()
+                                    && idx < state.pool.len()
                                 {
-                                    if let Some(idx) = runtime.drag_pool_item.take() {
-                                        if idx < state.pool.len() {
-                                            state.pad_assignments[pad] = Some(idx);
-                                            state.mark_audio_state_changed();
-                                            state.selection = Selection::Pad(pad);
-                                        }
-                                    }
+                                    state.pad_assignments[pad] = Some(idx);
+                                    state.mark_audio_state_changed();
+                                    state.selection = Selection::Pad(pad);
                                 }
                                 response.context_menu(|ui| {
                                     if ui.button("Clear pad").clicked() {

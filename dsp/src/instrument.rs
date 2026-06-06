@@ -432,12 +432,11 @@ impl MonoSpectralEngine {
                 active[held.pad] = true;
             }
         }
-        if self.gate {
-            if let Some(target) = &self.active_target {
-                if target.pad < PAD_COUNT {
-                    active[target.pad] = true;
-                }
-            }
+        if self.gate
+            && let Some(target) = &self.active_target
+            && target.pad < PAD_COUNT
+        {
+            active[target.pad] = true;
         }
         active
     }
@@ -722,8 +721,8 @@ impl FreezeInstrument {
             }
 
             let amp = self.engine.next_amp(self.sample_rate, params);
-            for ch in 0..channels {
-                main[ch][n] += self.engine.output_fifo[ch][self.engine.fifo_pos] * amp;
+            for (ch, out) in main.iter_mut().enumerate().take(channels) {
+                out[n] += self.engine.output_fifo[ch][self.engine.fifo_pos] * amp;
                 self.engine.output_fifo[ch][self.engine.fifo_pos] = 0.0;
             }
             self.engine.fifo_pos = (self.engine.fifo_pos + 1) % FFT_SIZE;

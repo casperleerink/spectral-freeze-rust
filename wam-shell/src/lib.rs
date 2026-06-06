@@ -83,6 +83,10 @@ pub extern "C" fn sf_create(
     )))
 }
 
+/// Destroy a processor created by [`sf_create`].
+///
+/// # Safety
+/// `ptr` must be null or a pointer returned by [`sf_create`] that has not already been freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sf_destroy(ptr: *mut WasmProcessor) {
     if !ptr.is_null() {
@@ -92,6 +96,10 @@ pub unsafe extern "C" fn sf_destroy(ptr: *mut WasmProcessor) {
     }
 }
 
+/// Reset the processor state.
+///
+/// # Safety
+/// `ptr` must be null or a valid, uniquely owned [`WasmProcessor`] pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sf_reset(ptr: *mut WasmProcessor) {
     if let Some(processor) = unsafe { ptr.as_mut() } {
@@ -99,6 +107,10 @@ pub unsafe extern "C" fn sf_reset(ptr: *mut WasmProcessor) {
     }
 }
 
+/// Set a processor parameter by index.
+///
+/// # Safety
+/// `ptr` must be null or a valid, uniquely owned [`WasmProcessor`] pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sf_set_parameter(ptr: *mut WasmProcessor, index: u32, value: f32) -> i32 {
     let Some(processor) = (unsafe { ptr.as_mut() }) else {
@@ -113,6 +125,10 @@ pub unsafe extern "C" fn sf_set_parameter(ptr: *mut WasmProcessor, index: u32, v
     1
 }
 
+/// Get a processor parameter by index.
+///
+/// # Safety
+/// `ptr` must be null or a valid [`WasmProcessor`] pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sf_get_parameter(ptr: *mut WasmProcessor, index: u32) -> f32 {
     let Some(processor) = (unsafe { ptr.as_ref() }) else {
@@ -122,6 +138,11 @@ pub unsafe extern "C" fn sf_get_parameter(ptr: *mut WasmProcessor, index: u32) -
 }
 
 /// Process planar f32 buffers laid out as `[channel][frame]`.
+///
+/// # Safety
+/// `ptr` must be null or a valid, uniquely owned [`WasmProcessor`] pointer. `input_ptr` and
+/// `output_ptr` must point to readable/writable planar buffers large enough for `frames` and the
+/// processor's channel count, or satisfy the null-pointer behavior documented by the host ABI.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sf_process(
     ptr: *mut WasmProcessor,
@@ -155,8 +176,12 @@ pub extern "C" fn sf_latency_samples() -> u32 {
     dsp::LATENCY_SAMPLES
 }
 
+/// Return the configured maximum block size.
+///
+/// # Safety
+/// `ptr` must be null or a valid [`WasmProcessor`] pointer.
 #[unsafe(no_mangle)]
-pub extern "C" fn sf_max_block_size(ptr: *const WasmProcessor) -> u32 {
+pub unsafe extern "C" fn sf_max_block_size(ptr: *const WasmProcessor) -> u32 {
     if let Some(processor) = unsafe { ptr.as_ref() } {
         processor.max_block as u32
     } else {
@@ -172,6 +197,10 @@ pub extern "C" fn sf_alloc_f32(len: usize) -> *mut f32 {
     ptr
 }
 
+/// Free an f32 buffer allocated by [`sf_alloc_f32`].
+///
+/// # Safety
+/// `ptr` must be null or a pointer returned by [`sf_alloc_f32`] with the same `len`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sf_free_f32(ptr: *mut f32, len: usize) {
     if !ptr.is_null() {

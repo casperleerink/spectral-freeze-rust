@@ -92,9 +92,9 @@ impl SpectralFreeze {
         let main_channels = main.len().min(self.channels.len());
 
         for n in 0..num_samples {
-            for ch in 0..main_channels {
+            for (ch, out) in main.iter_mut().enumerate().take(main_channels) {
                 let state = &mut self.channels[ch];
-                main[ch][n] = state.stft.push_sample_and_pop_output(main[ch][n]);
+                out[n] = state.stft.push_sample_and_pop_output(out[n]);
             }
 
             self.master_hop_counter += 1;
@@ -201,8 +201,8 @@ fn publish_processed_spectrum_from(
     let mut bucket_mags = [0.0_f32; SPECTRUM_DISPLAY_BINS];
     for i in 0..SPECTRUM_DISPLAY_BINS {
         let mut mag = 0.0;
-        for bin in bucket_starts[i]..bucket_ends[i] {
-            let bin_mag = spectrum[bin].norm();
+        for bin in spectrum.iter().take(bucket_ends[i]).skip(bucket_starts[i]) {
+            let bin_mag = bin.norm();
             if bin_mag > mag {
                 mag = bin_mag;
             }
@@ -239,8 +239,7 @@ fn record_analysis_frame(
     phase_advance: &[f32; NUM_BINS],
 ) {
     let slot = &mut state.mag_history[state.mag_history_write];
-    for k in 0..NUM_BINS {
-        let c = spectrum[k];
+    for (k, c) in spectrum.iter().enumerate().take(NUM_BINS) {
         let phase = c.im.atan2(c.re);
         slot[k] = c.norm();
 
@@ -269,12 +268,11 @@ fn record_analysis_frame(
 fn capture_freeze_frame(state: &mut FreezeState, spectrum: &[Complex32; FFT_SIZE]) {
     let count = state.mag_history_count.max(1);
     let inv_count = 1.0 / count as f32;
-    for k in 0..NUM_BINS {
+    for (k, c) in spectrum.iter().enumerate().take(NUM_BINS) {
         let mut sum = 0.0;
         for h in 0..count {
             sum += state.mag_history[h][k];
         }
-        let c = spectrum[k];
         state.frozen_mag[k] = sum * inv_count;
         state.frozen_phase[k] = c.im.atan2(c.re);
         state.frozen_phase_advance[k] = state.smoothed_phase_advance[k];
@@ -302,7 +300,7 @@ fn resynthesise_frozen_frame(
         }
     }
 
-    for k in 0..NUM_BINS {
+    for (k, bin) in spectrum.iter_mut().enumerate().take(NUM_BINS) {
         let mut phase = state.frozen_phase[k]
             + state.frozen_phase_advance[k] * (1.0 + rng.bipolar() * organic_amt * 0.035)
             + rng.bipolar() * (FREEZE_PHASE_JITTER_RADIANS + organic_amt * 0.18);
@@ -314,14 +312,14 @@ fn resynthesise_frozen_frame(
         state.frozen_phase[k] = phase;
 
         let band_pos = k as f32 * ORGANIC_AM_BANDS as f32 / NUM_BINS as f32;
-        let band0 = clamp(band_pos as f32, 0.0, (ORGANIC_AM_BANDS - 1) as f32) as usize;
+        let band0 = clamp(band_pos, 0.0, (ORGANIC_AM_BANDS - 1) as f32) as usize;
         let band1 = (band0 + 1).min(ORGANIC_AM_BANDS - 1);
         let frac = band_pos - band0 as f32;
         let band_am = organic_am.value[band0] * (1.0 - frac) + organic_am.value[band1] * frac;
         let mag = state.frozen_mag[k]
             * (1.0 + band_am * organic_amt * 0.28)
             * (1.0 + rng.bipolar() * organic_amt * 0.06);
-        spectrum[k] = Complex32::from_polar(mag, phase);
+        *bin = Complex32::from_polar(mag, phase);
     }
 }
 

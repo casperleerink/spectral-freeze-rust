@@ -4,17 +4,12 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) enum Selection {
+    #[default]
     Waveform,
     Pool(usize),
     Pad(usize),
-}
-
-impl Default for Selection {
-    fn default() -> Self {
-        Self::Waveform
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

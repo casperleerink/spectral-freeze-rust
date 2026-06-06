@@ -169,15 +169,14 @@ impl Plugin for SpectralFreezePlugin {
             self.cached_audition_revision = runtime.audition_revision;
             self.cached_editor_frame_generation = runtime.editor_frame_generation;
         }
-        if let Ok(state) = self.params.instrument_state.try_lock() {
-            if state.audio_revision != self.cached_audio_state_revision
+        if let Ok(state) = self.params.instrument_state.try_lock()
+            && (state.audio_revision != self.cached_audio_state_revision
                 || state.pool.len() != self.cached_pool.len()
-                || state.pad_assignments != self.cached_pad_assignments
-            {
-                self.cached_pool = state.pool.clone();
-                self.cached_pad_assignments = state.pad_assignments;
-                self.cached_audio_state_revision = state.audio_revision;
-            }
+                || state.pad_assignments != self.cached_pad_assignments)
+        {
+            self.cached_pool = state.pool.clone();
+            self.cached_pad_assignments = state.pad_assignments;
+            self.cached_audio_state_revision = state.audio_revision;
         }
 
         let mouse_gates = self.cached_mouse_gates;
@@ -194,8 +193,8 @@ impl Plugin for SpectralFreezePlugin {
         }
         let editor_recently_active = self.blocks_since_editor_frame < 100;
 
-        for pad in 0..PAD_COUNT {
-            if mouse_gates[pad] && !self.previous_mouse_gates[pad] {
+        for (pad, mouse_gate) in mouse_gates.iter().enumerate().take(PAD_COUNT) {
+            if *mouse_gate && !self.previous_mouse_gates[pad] {
                 self.instrument.note_on(
                     pad_note(pad),
                     0,
@@ -203,7 +202,7 @@ impl Plugin for SpectralFreezePlugin {
                     &self.cached_pool,
                     &self.cached_pad_assignments,
                 );
-            } else if !mouse_gates[pad] && self.previous_mouse_gates[pad] {
+            } else if !*mouse_gate && self.previous_mouse_gates[pad] {
                 self.instrument.note_off(pad_note(pad), 0, params);
             }
         }
@@ -239,9 +238,8 @@ impl Plugin for SpectralFreezePlugin {
             }
         }
 
-        let mut main = buffer.as_slice();
-        self.instrument
-            .process_block(&mut main, params, &self.cached_pool);
+        let main = buffer.as_slice();
+        self.instrument.process_block(main, params, &self.cached_pool);
 
         if audition_enabled && editor_recently_active {
             if let Some(item) = audition_item {
@@ -267,11 +265,10 @@ impl Plugin for SpectralFreezePlugin {
                 if audition_revision != self.last_audition_revision {
                     self.audition.reset();
                     self.audition
-                        .note_on(pad_note(0), 0, 1.0, &pool, &assignments);
+                        .note_on(pad_note(0), 0, 1.0, pool, &assignments);
                     self.last_audition_revision = audition_revision;
                 }
-                self.audition
-                    .process_block_additive(&mut main, params, &pool);
+                self.audition.process_block_additive(main, params, pool);
             }
         } else {
             self.audition.reset();

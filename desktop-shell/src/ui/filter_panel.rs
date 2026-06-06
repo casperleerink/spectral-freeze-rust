@@ -77,11 +77,11 @@ pub(super) fn set_context_filter(state: &mut InstrumentState, value: f32) {
             }
         }
         Selection::Pad(pad) => {
-            if let Some(idx) = state.pad_assignments[pad] {
-                if let Some(item) = state.pool.get_mut(idx) {
-                    item.filter = value;
-                    state.mark_audio_state_changed();
-                }
+            if let Some(idx) = state.pad_assignments[pad]
+                && let Some(item) = state.pool.get_mut(idx)
+            {
+                item.filter = value;
+                state.mark_audio_state_changed();
             }
         }
     }
