@@ -3,14 +3,19 @@ version = 1
 name = "spectral-freeze-rust"
 
 [setup]
-script = "command -v watchexec >/dev/null 2>&1 || brew install watchexec"
+script = ""
 
 [[actions]]
-name = "Run Standalone"
+name = "Build"
+icon = "tool"
+command = "cargo run -p xtask -- bundle spectral-freeze --release"
+
+[[actions]]
+name = "Dev"
 icon = "tool"
 command = "./scripts/dev-standalone-watch.sh"
 
 [[actions]]
-name = "Build Bundles"
+name = "Run Standalone"
 icon = "tool"
-command = "cargo run -p xtask -- bundle spectral-freeze --release"
+command = "open \"target/bundled/Spectral Freeze.app\""
