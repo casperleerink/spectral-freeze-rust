@@ -27,9 +27,3 @@ pub(crate) fn calculate_window_gain(window: &[f32; FFT_SIZE]) -> f32 {
 pub(crate) fn phase_advance_for_bin(bin: usize) -> f32 {
     2.0 * PI * bin as f32 * HOP_SIZE as f32 / FFT_SIZE as f32
 }
-
-pub(crate) fn fill_phase_advance(phase_advance: &mut [f32; NUM_BINS]) {
-    for (bin, advance) in phase_advance.iter_mut().enumerate() {
-        *advance = phase_advance_for_bin(bin);
-    }
-}

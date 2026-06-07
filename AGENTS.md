@@ -1,6 +1,6 @@
 # Spectral Freeze
 
-This project is an audio instrument. It has a dsp module with all audio processing code and other modules for releasing it to vst3, standalone, WAM etc.
+This project is an audio instrument. It has a dsp module with all audio processing code and native shell modules for releasing it to VST3, CLAP, and standalone.
 
 The instrument leans heave on spectral audio processing. The goal is for the user of the instrument to be able to create compositions with spectral audio source material while allowing them to control the audio on a spectral level.
 

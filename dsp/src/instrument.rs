@@ -1,11 +1,11 @@
 use crate::clamp;
 use crate::constants::*;
-use crate::params::{PARAM_ORGANIC, PARAMS, ParamInfo, ParamKind};
-use crate::processor::{
+use crate::params::{ParamInfo, ParamKind};
+use crate::random::JuceRandom;
+use crate::spectral::{
     apply_organic_saturation, apply_organic_spectral_processing, apply_synthesis_window,
     normalize_inverse_fft, rebuild_conjugate_mirror,
 };
-use crate::random::JuceRandom;
 use crate::state::{OrganicAmState, OrganicScratch};
 use crate::stft::{calculate_window_gain, fill_hann_window, phase_advance_for_bin};
 use rustfft::{Fft, FftPlanner, num_complex::Complex32};
@@ -54,7 +54,7 @@ pub const INSTRUMENT_PARAMS: [ParamInfo; 4] = [
         kind: ParamKind::Float,
         min: 0.0,
         max: 1.0,
-        default: PARAMS[PARAM_ORGANIC].default,
+        default: 0.0,
         unit: "%",
     },
 ];

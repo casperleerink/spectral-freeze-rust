@@ -1,45 +1,7 @@
 use super::*;
-use crate::processor::apply_organic_saturation;
+use crate::spectral::apply_organic_saturation;
 use rustfft::num_complex::Complex32;
 use std::f32::consts::PI;
-
-#[test]
-fn manifest_matches_constants() {
-    assert_eq!(PARAMS.len(), 3);
-    assert_eq!(PARAMS[PARAM_FREEZE].id, "freeze");
-    assert_eq!(PARAMS[PARAM_ORGANIC].id, "organic");
-}
-
-#[test]
-fn silence_stays_silent() {
-    let mut processor = SpectralFreeze::default();
-    processor.prepare(44_100.0, 2);
-    let mut left = vec![0.0_f32; 4096];
-    let mut right = vec![0.0_f32; 4096];
-    let mut channels: [&mut [f32]; 2] = [&mut left, &mut right];
-    processor.process_block(&mut channels, ProcessParams::default());
-    assert!(
-        channels
-            .iter()
-            .flat_map(|ch| ch.iter())
-            .all(|sample| sample.abs() < 1.0e-6)
-    );
-}
-
-#[test]
-fn impulse_passes_after_latency() {
-    let mut processor = SpectralFreeze::default();
-    processor.prepare(48_000.0, 1);
-    let mut mono = vec![0.0_f32; FFT_SIZE * 4];
-    mono[0] = 1.0;
-    let mut channels: [&mut [f32]; 1] = [&mut mono];
-    processor.process_block(&mut channels, ProcessParams::default());
-    let energy: f32 = channels[0].iter().map(|x| x.abs()).sum();
-    assert!(
-        energy > 0.1,
-        "expected overlap-add output energy, got {energy}"
-    );
-}
 
 #[test]
 fn organic_saturation_compensates_its_own_gain() {
@@ -58,39 +20,6 @@ fn organic_saturation_compensates_its_own_gain() {
     );
 }
 
-#[test]
-fn organic_macro_does_not_raise_output_level() {
-    fn render_rms(organic: f32) -> f32 {
-        let mut processor = SpectralFreeze::default();
-        processor.prepare(44_100.0, 1);
-        let mut mono = vec![0.0_f32; FFT_SIZE * 16];
-        for (i, sample) in mono.iter_mut().enumerate() {
-            *sample = (2.0 * PI * 440.0 * i as f32 / 44_100.0).sin() * 0.2;
-        }
-        let mut channels: [&mut [f32]; 1] = [&mut mono];
-        processor.process_block(
-            &mut channels,
-            ProcessParams {
-                organic,
-                ..Default::default()
-            },
-        );
-        let stable = &channels[0][FFT_SIZE * 2..];
-        (stable.iter().map(|x| x * x).sum::<f32>() / stable.len() as f32).sqrt()
-    }
-
-    let dry = render_rms(0.0);
-    let organic = render_rms(1.0);
-    assert!(
-        organic <= dry * 1.05,
-        "organic raised output level: dry={dry}, organic={organic}"
-    );
-    assert!(
-        organic >= dry * 0.80,
-        "organic over-compensated output level: dry={dry}, organic={organic}"
-    );
-}
-
 fn sine_buffer(freq: f32, amp: f32, sample_rate: f32, len: usize) -> Vec<f32> {
     (0..len)
         .map(|i| (2.0 * PI * freq * i as f32 / sample_rate).sin() * amp)
@@ -106,100 +35,6 @@ fn sine_projection(samples: &[f32], freq: f32, sample_rate: f32, offset: usize) 
         cos_sum += *sample * phase.cos();
     }
     2.0 * (sin_sum * sin_sum + cos_sum * cos_sum).sqrt() / samples.len() as f32
-}
-
-#[test]
-fn freeze_produces_bounded_audio() {
-    let mut processor = SpectralFreeze::default();
-    processor.prepare(44_100.0, 1);
-    let mut mono = sine_buffer(440.0, 0.25, 44_100.0, FFT_SIZE * 8);
-    let mut channels: [&mut [f32]; 1] = [&mut mono];
-    processor.process_block(
-        &mut channels,
-        ProcessParams {
-            freeze: true,
-            ..Default::default()
-        },
-    );
-    assert!(channels[0].iter().all(|x| x.is_finite() && x.abs() < 8.0));
-}
-
-#[test]
-fn freeze_holds_tone_after_input_stops() {
-    let sample_rate = 44_100.0;
-    let mut processor = SpectralFreeze::default();
-    processor.prepare(sample_rate, 1);
-
-    let mut prime = sine_buffer(440.0, 0.2, sample_rate, FFT_SIZE * 3);
-    let mut channels: [&mut [f32]; 1] = [&mut prime];
-    processor.process_block(&mut channels, ProcessParams::default());
-
-    let mut capture = sine_buffer(440.0, 0.2, sample_rate, HOP_SIZE * 2);
-    let mut channels: [&mut [f32]; 1] = [&mut capture];
-    processor.process_block(
-        &mut channels,
-        ProcessParams {
-            freeze: true,
-            ..Default::default()
-        },
-    );
-
-    let mut silent = vec![0.0_f32; FFT_SIZE * 6];
-    let mut channels: [&mut [f32]; 1] = [&mut silent];
-    processor.process_block(
-        &mut channels,
-        ProcessParams {
-            freeze: true,
-            ..Default::default()
-        },
-    );
-
-    let held = &channels[0][FFT_SIZE * 2..];
-    let rms = (held.iter().map(|x| x * x).sum::<f32>() / held.len() as f32).sqrt();
-    assert!(
-        rms > 0.01,
-        "frozen output disappeared after input stopped, rms={rms}"
-    );
-}
-
-#[test]
-fn freeze_recaptures_on_second_rising_edge() {
-    let sample_rate = 44_100.0;
-    let mut processor = SpectralFreeze::default();
-    processor.prepare(sample_rate, 1);
-
-    let mut first = sine_buffer(330.0, 0.2, sample_rate, FFT_SIZE * 5);
-    let mut channels: [&mut [f32]; 1] = [&mut first];
-    processor.process_block(
-        &mut channels,
-        ProcessParams {
-            freeze: true,
-            ..Default::default()
-        },
-    );
-
-    let mut unfreeze = sine_buffer(880.0, 0.2, sample_rate, FFT_SIZE * 5);
-    let mut channels: [&mut [f32]; 1] = [&mut unfreeze];
-    processor.process_block(&mut channels, ProcessParams::default());
-
-    let mut second = sine_buffer(880.0, 0.2, sample_rate, FFT_SIZE * 8);
-    let mut channels: [&mut [f32]; 1] = [&mut second];
-    processor.process_block(
-        &mut channels,
-        ProcessParams {
-            freeze: true,
-            ..Default::default()
-        },
-    );
-
-    let start = FFT_SIZE * 4;
-    let analysed = &channels[0][start..];
-    let a330 = sine_projection(analysed, 330.0, sample_rate, start);
-    let a880 = sine_projection(analysed, 880.0, sample_rate, start);
-    assert!(
-        a880 > a330 * 2.0,
-        "second freeze edge did not recapture new tone: 330={a330}, 880={a880}"
-    );
 }
 
 #[test]

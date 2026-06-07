@@ -4,7 +4,7 @@
 
 Replace the current audio-effect workflow with a true MIDI instrument workflow for CLAP/VST3. The instrument lets users load source audio, find interesting spectral freeze moments, collect them in a pool, assign them to a 16-pad bank, and play those pads from MIDI like a drum rack.
 
-Native CLAP/VST3 is the v1 target. Keep DSP/data structures host-agnostic where practical so a WAM version can be revisited later.
+Native CLAP/VST3 is the v1 target. Keep DSP/data structures host-agnostic across the native plugin and standalone shells.
 
 ## Product Model
 
@@ -163,7 +163,7 @@ No separate bank import/export for v1.
 ## Out of Scope for v1
 
 - Non-WAV file support
-- Web/WAM UI implementation
+- Web UI implementation
 - Spectrum display
 - Spectrogram view
 - Factory/demo items

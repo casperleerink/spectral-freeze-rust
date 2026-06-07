@@ -1,5 +1,5 @@
 [workspace]
-members = ["dsp", "desktop-shell", "wam-shell", "xtask"]
+members = ["dsp", "desktop-shell", "xtask"]
 resolver = "2"
 
 [workspace.package]
