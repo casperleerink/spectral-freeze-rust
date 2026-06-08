@@ -7,7 +7,7 @@ use crate::source::loader;
 use crate::state::{EditorRuntime, InstrumentState, PadActivityAtomics};
 use dsp::capture_freeze_from_audio;
 use nih_plug::prelude::ParamSetter;
-use nih_plug_egui::egui::{self, RichText, Vec2};
+use nih_plug_egui::egui::{self, Vec2};
 use std::sync::{Arc, Mutex};
 
 pub(crate) fn draw_editor(
@@ -33,20 +33,6 @@ pub(crate) fn draw_editor(
         .inner_margin(egui::Margin::same(16))
         .show(ui, |ui| {
             ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("SPECTRAL FREEZE INSTRUMENT")
-                            .size(19.0)
-                            .strong()
-                            .color(theme.fg),
-                    );
-                    ui.label(
-                        RichText::new("WAV → FREEZE POOL → 16 MIDI PADS")
-                            .size(11.0)
-                            .color(theme.fg_dim),
-                    );
-                });
-
                 ui.horizontal_top(|ui| {
                     let spacing = ui.spacing().item_spacing.x;
                     let filter_width = 178.0;

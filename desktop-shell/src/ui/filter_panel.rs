@@ -17,12 +17,7 @@ pub(super) fn draw_filter_panel(ui: &mut egui::Ui, state: &mut InstrumentState, 
             ui.set_height(170.0);
             ui.vertical_centered(|ui| {
                 ui.spacing_mut().item_spacing.y = 4.0;
-                ui.label(RichText::new("Contextual Filter").strong().color(theme.fg));
-                ui.label(
-                    RichText::new(context_label(state))
-                        .size(10.0)
-                        .color(theme.fg_dim),
-                );
+                ui.label(RichText::new("Spectral Filter").strong().color(theme.fg));
                 ui.add_space(4.0);
 
                 let mut filter = current_context_filter(state);
@@ -92,13 +87,5 @@ pub(super) fn selection_help(state: &InstrumentState) -> String {
         Selection::Waveform => "Audition + next capture".to_string(),
         Selection::Pool(idx) => format!("Pool item {} + assigned pads", idx + 1),
         Selection::Pad(pad) => format!("Pad {} pool item", pad + 1),
-    }
-}
-
-fn context_label(state: &InstrumentState) -> &'static str {
-    match state.selection {
-        Selection::Waveform => "Audition monitor",
-        Selection::Pool(_) => "Freeze pool",
-        Selection::Pad(_) => "Pad assignment",
     }
 }

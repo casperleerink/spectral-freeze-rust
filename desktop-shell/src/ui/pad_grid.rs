@@ -11,16 +11,44 @@ pub(super) fn draw_pad_grid(
     theme: &UiTheme,
 ) {
     let panel_width = ui.available_width();
+    let source_auditioning = runtime.audition_enabled;
+    let panel_fill = if source_auditioning {
+        theme.panel.gamma_multiply(0.72)
+    } else {
+        theme.panel
+    };
+    let text_color = if source_auditioning {
+        theme.fg_dim
+    } else {
+        theme.fg
+    };
 
     egui::Frame::NONE
-        .fill(theme.panel)
-        .stroke(Stroke::new(1.0, theme.border))
+        .fill(panel_fill)
+        .stroke(Stroke::new(
+            1.0,
+            if source_auditioning {
+                theme.border.gamma_multiply(0.7)
+            } else {
+                theme.border
+            },
+        ))
         .corner_radius(12.0)
         .inner_margin(10.0)
         .show(ui, |ui| {
             ui.set_min_width((panel_width - 20.0).max(0.0));
             ui.set_height(270.0);
             ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Play Pads").strong().color(text_color));
+                    if source_auditioning {
+                        ui.label(
+                            RichText::new("Sound Select active")
+                                .size(10.0)
+                                .color(theme.fg_dim),
+                        );
+                    }
+                });
                 let spacing = Vec2::new(6.0, 6.0);
                 let pad_size = Vec2::new(
                     ((ui.available_width() - spacing.x * 3.0) / 4.0).max(48.0),
@@ -50,6 +78,11 @@ pub(super) fn draw_pad_grid(
                                 } else {
                                     theme.panel2.gamma_multiply(0.55)
                                 };
+                                let fill = if source_auditioning && !active[pad] {
+                                    fill.gamma_multiply(0.72)
+                                } else {
+                                    fill
+                                };
                                 let short = assigned
                                     .map(|i| short_name(&i.name))
                                     .unwrap_or_else(|| "Empty".to_string());
@@ -64,6 +97,8 @@ pub(super) fn draw_pad_grid(
                                     egui::Button::new(RichText::new(text).size(11.0).color(
                                         if fill == theme.accent {
                                             Color32::BLACK
+                                        } else if source_auditioning {
+                                            theme.fg_dim
                                         } else {
                                             theme.fg
                                         },

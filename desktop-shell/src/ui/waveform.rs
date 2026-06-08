@@ -1,7 +1,7 @@
 use super::theme::UiTheme;
 use crate::source::loader;
 use crate::state::{EditorRuntime, InstrumentState, Selection};
-use nih_plug_egui::egui::{self, Color32, Pos2, Stroke, Vec2};
+use nih_plug_egui::egui::{self, Color32, Pos2, Rect, Stroke, Vec2};
 use std::path::PathBuf;
 
 pub(super) fn draw_waveform(
@@ -108,11 +108,23 @@ pub(super) fn draw_waveform(
         );
     } else {
         painter.text(
-            rect.center(),
+            rect.center() - Vec2::new(0.0, 16.0),
             egui::Align2::CENTER_CENTER,
-            "Load or drop a WAV file to show waveform",
+            "Drop a WAV file to show waveform",
             egui::FontId::proportional(14.0),
             theme.fg_dim,
         );
+
+        let button_rect =
+            Rect::from_center_size(rect.center() + Vec2::new(0.0, 18.0), Vec2::new(104.0, 28.0));
+        if ui
+            .put(
+                button_rect,
+                egui::Button::new("Load WAV").fill(theme.panel2),
+            )
+            .clicked()
+        {
+            loader::open_dialog(runtime);
+        }
     }
 }
