@@ -13,7 +13,7 @@ use std::f32::consts::PI;
 use std::sync::Arc;
 
 pub const PAD_COUNT: usize = 16;
-pub const FIRST_PAD_MIDI_NOTE: u8 = 36; // C1 through D#2
+pub const FIRST_PAD_MIDI_NOTE: u8 = 60; // C3 through D#4
 
 pub const PARAM_ATTACK: usize = 0;
 pub const PARAM_RELEASE: usize = 1;
