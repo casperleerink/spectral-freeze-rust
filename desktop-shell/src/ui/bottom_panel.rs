@@ -17,19 +17,12 @@ pub(super) fn draw_bottom_panel(
         .corner_radius(12.0)
         .inner_margin(10.0)
         .show(ui, |ui| {
-            ui.label(
-                RichText::new("ADSR + Organic + SC")
-                    .strong()
-                    .color(theme.fg),
-            );
+            ui.label(RichText::new("Expression").strong().color(theme.fg));
             ui.horizontal_wrapped(|ui| {
                 draw_param_knob(ui, setter, &params.attack, "Attack", theme);
-                draw_param_knob(ui, setter, &params.decay, "Decay", theme);
-                draw_param_knob(ui, setter, &params.sustain, "Sustain", theme);
                 draw_param_knob(ui, setter, &params.release, "Release", theme);
+                draw_param_knob(ui, setter, &params.glide, "Glide", theme);
                 draw_param_knob(ui, setter, &params.organic, "Organic", theme);
-                draw_param_knob(ui, setter, &params.sc_boost, "SC Boost", theme);
-                draw_param_knob(ui, setter, &params.sc_freq_smoothing, "SC Smooth", theme);
             });
             ui.label(
                 RichText::new(selection_help(state))

@@ -1,5 +1,5 @@
 [workspace]
-members = ["dsp", "desktop-shell", "wam-shell", "xtask"]
+members = ["dsp", "desktop-shell", "xtask"]
 resolver = "2"
 
 [workspace.package]
@@ -10,6 +10,11 @@ authors = ["Casper Leerink"]
 
 [workspace.dependencies]
 dsp = { path = "dsp" }
+
+# Keep DSP runtime representative during debug/standalone iteration while
+# preserving fast incremental builds for the UI/plugin shell crates.
+[profile.dev.package.dsp]
+opt-level = 3
 
 [patch."https://github.com/BillyDM/egui-baseview.git"]
 egui-baseview = { path = "vendor/egui-baseview" }

@@ -4,17 +4,12 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) enum Selection {
+    #[default]
     Waveform,
     Pool(usize),
     Pad(usize),
-}
-
-impl Default for Selection {
-    fn default() -> Self {
-        Self::Waveform
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -68,7 +63,6 @@ impl LoadedSource {
     }
 }
 
-#[derive(Default)]
 pub(crate) struct EditorRuntime {
     pub(crate) source: Option<LoadedSource>,
     pub(crate) file_error: Option<String>,
@@ -80,6 +74,23 @@ pub(crate) struct EditorRuntime {
     pub(crate) editor_frame_generation: u64,
     pub(crate) mouse_pad_gates: [bool; PAD_COUNT],
     pub(crate) drag_pool_item: Option<usize>,
+}
+
+impl Default for EditorRuntime {
+    fn default() -> Self {
+        Self {
+            source: None,
+            file_error: None,
+            file_status: None,
+            pending_source_rx: None,
+            audition_enabled: true,
+            audition_item: None,
+            audition_revision: 0,
+            editor_frame_generation: 0,
+            mouse_pad_gates: [false; PAD_COUNT],
+            drag_pool_item: None,
+        }
+    }
 }
 
 pub(crate) struct PadActivityAtomics {

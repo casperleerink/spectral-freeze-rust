@@ -7,10 +7,6 @@ use nih_plug_egui::{create_egui_editor, egui::CentralPanel};
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 
-const SIDECHAIN_STEREO: &[NonZeroU32] = &[new_nonzero_u32(2)];
-const SIDECHAIN_MONO: &[NonZeroU32] = &[new_nonzero_u32(1)];
-const AUX_INPUT_NAMES: &[&str] = &["Sidechain"];
-
 pub struct SpectralFreezePlugin {
     params: Arc<SpectralFreezeParams>,
     instrument: FreezeInstrument,
@@ -59,12 +55,9 @@ impl SpectralFreezePlugin {
     fn current_params(&self) -> InstrumentProcessParams {
         InstrumentProcessParams {
             attack_s: self.params.attack.value(),
-            decay_s: self.params.decay.value(),
-            sustain: self.params.sustain.value(),
             release_s: self.params.release.value(),
+            glide_s: self.params.glide.value(),
             organic: self.params.organic.value(),
-            sc_boost_db: self.params.sc_boost.value(),
-            sc_freq_smoothing: self.params.sc_freq_smoothing.value(),
         }
     }
 }
@@ -80,10 +73,8 @@ impl Plugin for SpectralFreezePlugin {
         AudioIOLayout {
             main_input_channels: None,
             main_output_channels: NonZeroU32::new(2),
-            aux_input_ports: SIDECHAIN_STEREO,
             names: PortNames {
                 main_output: Some("Output"),
-                aux_inputs: AUX_INPUT_NAMES,
                 ..PortNames::const_default()
             },
             ..AudioIOLayout::const_default()
@@ -91,10 +82,8 @@ impl Plugin for SpectralFreezePlugin {
         AudioIOLayout {
             main_input_channels: None,
             main_output_channels: NonZeroU32::new(1),
-            aux_input_ports: SIDECHAIN_MONO,
             names: PortNames {
                 main_output: Some("Output"),
-                aux_inputs: AUX_INPUT_NAMES,
                 ..PortNames::const_default()
             },
             ..AudioIOLayout::const_default()
@@ -140,18 +129,10 @@ impl Plugin for SpectralFreezePlugin {
             .main_output_channels
             .map(|n| n.get() as usize)
             .unwrap_or(2);
-        let sidechain_channels = audio_io_layout
-            .aux_input_ports
-            .first()
-            .map(|n| n.get() as usize)
-            .unwrap_or(0);
-        self.instrument.prepare(
-            buffer_config.sample_rate,
-            output_channels,
-            sidechain_channels,
-        );
+        self.instrument
+            .prepare(buffer_config.sample_rate, output_channels);
         self.audition
-            .prepare(buffer_config.sample_rate, output_channels, 0);
+            .prepare(buffer_config.sample_rate, output_channels);
         context.set_latency_samples(dsp::LATENCY_SAMPLES);
         true
     }
@@ -176,7 +157,7 @@ impl Plugin for SpectralFreezePlugin {
     fn process(
         &mut self,
         buffer: &mut Buffer,
-        aux: &mut AuxiliaryBuffers,
+        _: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         let params = self.current_params();
@@ -188,15 +169,14 @@ impl Plugin for SpectralFreezePlugin {
             self.cached_audition_revision = runtime.audition_revision;
             self.cached_editor_frame_generation = runtime.editor_frame_generation;
         }
-        if let Ok(state) = self.params.instrument_state.try_lock() {
-            if state.audio_revision != self.cached_audio_state_revision
+        if let Ok(state) = self.params.instrument_state.try_lock()
+            && (state.audio_revision != self.cached_audio_state_revision
                 || state.pool.len() != self.cached_pool.len()
-                || state.pad_assignments != self.cached_pad_assignments
-            {
-                self.cached_pool = state.pool.clone();
-                self.cached_pad_assignments = state.pad_assignments;
-                self.cached_audio_state_revision = state.audio_revision;
-            }
+                || state.pad_assignments != self.cached_pad_assignments)
+        {
+            self.cached_pool = state.pool.clone();
+            self.cached_pad_assignments = state.pad_assignments;
+            self.cached_audio_state_revision = state.audio_revision;
         }
 
         let mouse_gates = self.cached_mouse_gates;
@@ -213,8 +193,8 @@ impl Plugin for SpectralFreezePlugin {
         }
         let editor_recently_active = self.blocks_since_editor_frame < 100;
 
-        for pad in 0..PAD_COUNT {
-            if mouse_gates[pad] && !self.previous_mouse_gates[pad] {
+        for (pad, mouse_gate) in mouse_gates.iter().enumerate().take(PAD_COUNT) {
+            if *mouse_gate && !self.previous_mouse_gates[pad] {
                 self.instrument.note_on(
                     pad_note(pad),
                     0,
@@ -222,7 +202,7 @@ impl Plugin for SpectralFreezePlugin {
                     &self.cached_pool,
                     &self.cached_pad_assignments,
                 );
-            } else if !mouse_gates[pad] && self.previous_mouse_gates[pad] {
+            } else if !*mouse_gate && self.previous_mouse_gates[pad] {
                 self.instrument.note_off(pad_note(pad), 0, params);
             }
         }
@@ -249,14 +229,7 @@ impl Plugin for SpectralFreezePlugin {
                     self.instrument.note_off(note, channel, params);
                 }
                 NoteEvent::Choke { note, channel, .. } => {
-                    self.instrument.note_off(
-                        note,
-                        channel,
-                        InstrumentProcessParams {
-                            release_s: 0.0,
-                            ..params
-                        },
-                    );
+                    self.instrument.note_off(note, channel, params);
                 }
                 NoteEvent::MidiCC { cc: 64, value, .. } => {
                     self.instrument.set_sustain(value >= 0.5, params);
@@ -265,10 +238,9 @@ impl Plugin for SpectralFreezePlugin {
             }
         }
 
-        let sidechain = aux.inputs.first_mut().map(|buffer| buffer.as_slice());
-        let mut main = buffer.as_slice();
+        let main = buffer.as_slice();
         self.instrument
-            .process_block(&mut main, sidechain.as_deref(), params, &self.cached_pool);
+            .process_block(main, params, &self.cached_pool);
 
         if audition_enabled && editor_recently_active {
             if let Some(item) = audition_item {
@@ -294,11 +266,10 @@ impl Plugin for SpectralFreezePlugin {
                 if audition_revision != self.last_audition_revision {
                     self.audition.reset();
                     self.audition
-                        .note_on(pad_note(0), 0, 1.0, &pool, &assignments);
+                        .note_on(pad_note(0), 0, 1.0, pool, &assignments);
                     self.last_audition_revision = audition_revision;
                 }
-                self.audition
-                    .process_block_additive(&mut main, params, &pool);
+                self.audition.process_block_additive(main, params, pool);
             }
         } else {
             self.audition.reset();
@@ -312,7 +283,8 @@ impl Plugin for SpectralFreezePlugin {
 
 impl ClapPlugin for SpectralFreezePlugin {
     const CLAP_ID: &'static str = "com.cleerink.spectral-freeze";
-    const CLAP_DESCRIPTION: Option<&'static str> = Some("Spectral freeze pad-bank MIDI instrument");
+    const CLAP_DESCRIPTION: Option<&'static str> =
+        Some("Monophonic spectral-state MIDI instrument");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
     const CLAP_FEATURES: &'static [ClapFeature] = &[
