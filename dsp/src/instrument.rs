@@ -532,10 +532,15 @@ impl MonoSpectralEngine {
 
                 let phase_advance = self.current_phase_advance[out_ch][k]
                     * (1.0 + self.rng.bipolar() * organic_amt * 0.035);
+                // Phase jitter is the dominant "noise" term: randomizing phase
+                // per-bin decorrelates the spectrum into noise. Curve it as
+                // organic^2 so low/mid settings stay tonal and it only turns
+                // noisy near the top of the dial.
                 let phase = wrap_phase(
                     self.current_phase[out_ch][k]
                         + phase_advance
-                        + self.rng.bipolar() * (FREEZE_PHASE_JITTER_RADIANS + organic_amt * 0.18),
+                        + self.rng.bipolar()
+                            * (FREEZE_PHASE_JITTER_RADIANS + organic_amt * organic_amt * 0.12),
                 );
                 self.current_phase[out_ch][k] = phase;
 
@@ -545,8 +550,11 @@ impl MonoSpectralEngine {
                 let frac = band_pos - band0 as f32;
                 let band_am = self.organic_am[out_ch].value[band0] * (1.0 - frac)
                     + self.organic_am[out_ch].value[band1] * frac;
+                // Banded AM is the musical "breathing" motion. Deepened from
+                // 0.28 to 0.45 so the movement reads clearly; the per-bin
+                // random term (0.06) stays small to avoid adding fizz.
                 let mag = (self.current_mag[out_ch][k]
-                    * (1.0 + band_am * organic_amt * 0.28)
+                    * (1.0 + band_am * organic_amt * 0.45)
                     * (1.0 + self.rng.bipolar() * organic_amt * 0.06))
                     .max(0.0);
                 self.spectrum[k] = Complex32::from_polar(mag, phase);

@@ -4,7 +4,7 @@ use rustfft::num_complex::Complex32;
 use std::f32::consts::PI;
 
 #[test]
-fn organic_saturation_compensates_its_own_gain() {
+fn organic_saturation_adds_bounded_gain() {
     let mut frame = [Complex32::new(0.0, 0.0); FFT_SIZE];
     for (i, sample) in frame.iter_mut().enumerate() {
         sample.re = (2.0 * PI * 440.0 * i as f32 / 44_100.0).sin() * 0.2;
@@ -13,10 +13,17 @@ fn organic_saturation_compensates_its_own_gain() {
 
     apply_organic_saturation(&mut frame, 1.0);
 
+    // Compensation is only partial now, so the drive-induced level change is
+    // audible rather than normalized away — but it must stay bounded so a
+    // heavily-saturated frame can't run away in gain.
     let after = (frame.iter().map(|x| x.re * x.re).sum::<f32>() / frame.len() as f32).sqrt();
     assert!(
-        (after - before).abs() <= before * 0.01,
-        "saturation changed RMS: before={before}, after={after}"
+        after > before,
+        "saturation should add audible drive: before={before}, after={after}"
+    );
+    assert!(
+        after < before * 2.5,
+        "saturation gain should stay bounded: before={before}, after={after}"
     );
 }
 

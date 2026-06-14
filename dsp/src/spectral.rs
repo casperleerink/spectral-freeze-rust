@@ -86,7 +86,8 @@ pub(crate) fn apply_organic_saturation(spectrum: &mut [Complex32; FFT_SIZE], org
 
     let drive = 1.0 + organic_amt * 4.0;
     let makeup = drive.tanh().recip();
-    let wet = organic_amt * 0.60;
+    // Higher wet mix so the tanh harmonics actually land in the timbre.
+    let wet = organic_amt * 0.85;
     let mut input_energy = 0.0;
     let mut output_energy = 0.0;
 
@@ -99,7 +100,12 @@ pub(crate) fn apply_organic_saturation(spectrum: &mut [Complex32; FFT_SIZE], org
     }
 
     if input_energy > 1.0e-12 && output_energy > 1.0e-12 {
+        // Only partially correct the energy change. Full compensation makes the
+        // saturation purely timbral (no level movement), which reads as "nothing
+        // happening"; letting ~40% of the natural drive-induced level change
+        // through keeps the effect alive without runaway gain.
         let compensation = (input_energy / output_energy).sqrt();
+        let compensation = 1.0 + (compensation - 1.0) * 0.6;
         for c in spectrum.iter_mut() {
             c.re *= compensation;
         }
