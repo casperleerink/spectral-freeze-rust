@@ -32,7 +32,6 @@ A `CapturedFreeze` stores the spectral source material used by the instrument:
 - source path metadata,
 - source sample rate,
 - cursor sample/time metadata,
-- per-item Filter value,
 - per-channel magnitude bins,
 - per-channel phase bins,
 - per-channel measured phase-advance bins.
@@ -44,9 +43,8 @@ The source WAV samples themselves are not stored.
 The Freeze Pool is the collection of captured spectral moments.
 
 - Capture adds a new item to the pool.
-- Pool items can be selected, deleted, and dragged onto pads.
+- Pool items can be deleted and dragged onto pads.
 - Deleting a pool item clears or reindexes affected pad assignments.
-- Editing a pool item’s Filter updates all pads that reference that item.
 
 ## Pad Grid
 
@@ -80,12 +78,7 @@ Global host-automatable expression parameters:
 - **Release**: amplitude gate closing time, seconds.
 - **Glide**: legato spectral morph time, seconds.
 - **Organic**: spectral instability/noise/saturation amount.
-
-There is also one contextual, state-only **Filter** control:
-
-- Waveform selected: controls audition and next capture.
-- Pool item selected: edits that pool item’s stored Filter.
-- Pad selected: edits the assigned pool item’s stored Filter.
+- **Filter**: spectral magnitude threshold, applied globally to whatever is playing.
 
 Filter is applied to target magnitudes before glide smoothing, so filtered bins fade in or out through the mono spectral state.
 
@@ -107,4 +100,4 @@ This keeps the graph to one spectral synthesis stage.
 - `desktop-shell/src/plugin.rs` — CLAP/VST3/standalone bridge, MIDI/mouse event handling, audio-thread state cache, audition instrument.
 - `desktop-shell/src/state.rs` — persisted instrument state and editor runtime state.
 - `desktop-shell/src/source/` — WAV loading.
-- `desktop-shell/src/ui/` — source panel, waveform, Freeze Pool, Pad Grid, contextual Filter, expression controls.
+- `desktop-shell/src/ui/` — source panel, waveform, Freeze Pool, Pad Grid, expression controls.

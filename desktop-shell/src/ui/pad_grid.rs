@@ -1,5 +1,5 @@
 use super::theme::UiTheme;
-use crate::state::{EditorRuntime, InstrumentState, Selection};
+use crate::state::{EditorRuntime, InstrumentState};
 use dsp::{PAD_COUNT, format_time, note_label, pad_note};
 use nih_plug_egui::egui::{self, Align2, Color32, FontId, RichText, Stroke, Vec2};
 
@@ -86,7 +86,6 @@ fn draw_pad(
 ) {
     let source_auditioning = runtime.audition_enabled;
     let assigned = state.pad_assignments[pad].and_then(|i| state.pool.get(i));
-    let selected = matches!(state.selection, Selection::Pad(p) if p == pad);
     let is_drop_target = runtime.drag_pool_item.is_some();
 
     let (rect, response) = ui.allocate_exact_size(pad_size, egui::Sense::click());
@@ -97,8 +96,6 @@ fn draw_pad(
         theme.accent
     } else if hovered_drop {
         theme.accent.gamma_multiply(0.35)
-    } else if selected {
-        Color32::from_rgb(82, 105, 128)
     } else if is_drop_target {
         theme.panel2.linear_multiply(1.35)
     } else if assigned.is_some() {
@@ -167,9 +164,6 @@ fn draw_pad(
 
     runtime.mouse_pad_gates[pad] =
         response.is_pointer_button_down_on() && state.pad_assignments[pad].is_some();
-    if response.clicked() {
-        state.selection = Selection::Pad(pad);
-    }
     if response.contains_pointer()
         && ui.input(|i| i.pointer.any_released())
         && let Some(idx) = runtime.drag_pool_item.take()
@@ -177,7 +171,6 @@ fn draw_pad(
     {
         state.pad_assignments[pad] = Some(idx);
         state.mark_audio_state_changed();
-        state.selection = Selection::Pad(pad);
     }
     response.context_menu(|ui| {
         if ui.button("Clear pad").clicked() {

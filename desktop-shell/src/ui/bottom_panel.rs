@@ -1,6 +1,5 @@
-use super::{controls::draw_param_knob, filter_panel::selection_help, theme::UiTheme};
+use super::{controls::draw_param_knob, theme::UiTheme};
 use crate::params::SpectralFreezeParams;
-use crate::state::InstrumentState;
 use nih_plug::prelude::ParamSetter;
 use nih_plug_egui::egui::{self, RichText, Stroke};
 
@@ -8,7 +7,6 @@ pub(super) fn draw_bottom_panel(
     ui: &mut egui::Ui,
     setter: &ParamSetter,
     params: &SpectralFreezeParams,
-    state: &mut InstrumentState,
     theme: &UiTheme,
 ) {
     egui::Frame::NONE
@@ -23,12 +21,8 @@ pub(super) fn draw_bottom_panel(
                 draw_param_knob(ui, setter, &params.release, "Release", theme);
                 draw_param_knob(ui, setter, &params.glide, "Glide", theme);
                 draw_param_knob(ui, setter, &params.organic, "Organic", theme);
+                draw_param_knob(ui, setter, &params.filter, "Filter", theme);
             });
-            ui.label(
-                RichText::new(selection_help(state))
-                    .size(10.0)
-                    .color(theme.fg_dim),
-            );
             ui.painter().rect_stroke(
                 ui.min_rect(),
                 12.0,

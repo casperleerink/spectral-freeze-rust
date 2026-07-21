@@ -19,8 +19,9 @@ pub const PARAM_ATTACK: usize = 0;
 pub const PARAM_RELEASE: usize = 1;
 pub const PARAM_GLIDE: usize = 2;
 pub const PARAM_INSTRUMENT_ORGANIC: usize = 3;
+pub const PARAM_FILTER: usize = 4;
 
-pub const INSTRUMENT_PARAMS: [ParamInfo; 4] = [
+pub const INSTRUMENT_PARAMS: [ParamInfo; 5] = [
     ParamInfo {
         id: "attack",
         name: "Attack",
@@ -57,6 +58,15 @@ pub const INSTRUMENT_PARAMS: [ParamInfo; 4] = [
         default: 0.0,
         unit: "%",
     },
+    ParamInfo {
+        id: "filter",
+        name: "Filter",
+        kind: ParamKind::Float,
+        min: 0.0,
+        max: 1.0,
+        default: 0.0,
+        unit: "%",
+    },
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -65,6 +75,7 @@ pub struct InstrumentProcessParams {
     pub release_s: f32,
     pub glide_s: f32,
     pub organic: f32,
+    pub filter: f32,
 }
 
 impl Default for InstrumentProcessParams {
@@ -74,6 +85,7 @@ impl Default for InstrumentProcessParams {
             release_s: INSTRUMENT_PARAMS[PARAM_RELEASE].default,
             glide_s: INSTRUMENT_PARAMS[PARAM_GLIDE].default,
             organic: INSTRUMENT_PARAMS[PARAM_INSTRUMENT_ORGANIC].default,
+            filter: INSTRUMENT_PARAMS[PARAM_FILTER].default,
         }
     }
 }
@@ -85,6 +97,7 @@ impl InstrumentProcessParams {
             release_s: clamp(self.release_s, 0.0, 10.0),
             glide_s: clamp(self.glide_s, 0.0, 5.0),
             organic: clamp(self.organic, 0.0, 1.0),
+            filter: clamp(self.filter, 0.0, 1.0),
         }
     }
 }
@@ -103,7 +116,6 @@ pub struct CapturedFreeze {
     pub source_sample_rate: f32,
     pub cursor_sample: usize,
     pub cursor_time_seconds: f32,
-    pub filter: f32,
     pub channels: Vec<FrozenChannelData>,
 }
 
@@ -138,7 +150,6 @@ pub fn capture_freeze_from_audio(
     source_sample_rate: f32,
     cursor_sample: usize,
     source_path: Option<&str>,
-    filter: f32,
 ) -> Option<CapturedFreeze> {
     if source_channels.is_empty() || source_sample_rate <= 0.0 {
         return None;
@@ -222,7 +233,6 @@ pub fn capture_freeze_from_audio(
         source_sample_rate,
         cursor_sample: safe_cursor,
         cursor_time_seconds,
-        filter: clamp(filter, 0.0, 1.0),
         channels,
     })
 }
@@ -289,10 +299,6 @@ struct MonoSpectralEngine {
     current_phase_advance: Vec<Box<[f32; NUM_BINS]>>,
     organic_am: Vec<OrganicAmState>,
     organic_scratch: Vec<OrganicScratch>,
-    /// Live filter target replacing the item's stored filter when set. Lets a
-    /// host feed continuous filter edits without republishing the (heavy)
-    /// captured item itself.
-    filter_override: Option<f32>,
     smoothed_filter: f32,
     amp: f32,
     output_fifo: Vec<Box<[f32; FFT_SIZE]>>,
@@ -314,7 +320,6 @@ impl MonoSpectralEngine {
             current_phase_advance: Vec::new(),
             organic_am: Vec::new(),
             organic_scratch: Vec::new(),
-            filter_override: None,
             smoothed_filter: 0.0,
             amp: 0.0,
             output_fifo: Vec::new(),
@@ -387,33 +392,22 @@ impl MonoSpectralEngine {
 
     fn note_on(
         &mut self,
-        pad: usize,
-        item_index: usize,
+        held: HeldNote,
         item: &CapturedFreeze,
-        note: u8,
-        channel: u8,
-        velocity: f32,
+        filter: f32,
         playback_sample_rate: f32,
     ) {
         self.held_notes
-            .retain(|held| held.note != note || held.channel != channel);
+            .retain(|h| h.note != held.note || h.channel != held.channel);
 
         let fresh_articulation =
             self.held_notes.is_empty() && (!self.gate || self.amp <= SILENCE_AMP);
-        let held = HeldNote {
-            pad,
-            item_index,
-            note,
-            channel,
-            velocity: clamp(velocity, 0.0, 1.0),
-            physically_held: true,
-        };
         self.held_notes.push(held.clone());
         self.active_target = Some(held);
         self.gate = true;
 
         if fresh_articulation {
-            self.seed_from_target(item, playback_sample_rate);
+            self.seed_from_target(item, filter, playback_sample_rate);
             self.clear_output_buffers();
         }
     }
@@ -440,10 +434,6 @@ impl MonoSpectralEngine {
         self.sustain_down = down;
     }
 
-    fn target_filter(&self, item: &CapturedFreeze) -> f32 {
-        self.filter_override.unwrap_or(item.filter)
-    }
-
     fn recompute_active_target(&mut self) {
         self.active_target = self.held_notes.last().cloned();
         self.gate = self.active_target.is_some();
@@ -465,14 +455,14 @@ impl MonoSpectralEngine {
         active
     }
 
-    fn seed_from_target(&mut self, item: &CapturedFreeze, playback_sample_rate: f32) {
+    fn seed_from_target(&mut self, item: &CapturedFreeze, filter: f32, playback_sample_rate: f32) {
         if item.channels.is_empty() {
             return;
         }
 
         let phase_rate_ratio =
             phase_advance_rate_ratio(item.source_sample_rate, playback_sample_rate);
-        self.smoothed_filter = self.target_filter(item);
+        self.smoothed_filter = filter;
         for out_ch in 0..self.current_mag.len() {
             let src_ch = out_ch.min(item.channels.len() - 1);
             let channel = &item.channels[src_ch];
@@ -510,7 +500,7 @@ impl MonoSpectralEngine {
         let phase_coeff = glide_coeff(params.glide_s * PHASE_GLIDE_RATIO, sample_rate);
         let organic_amt = params.organic;
         let filter_coeff = glide_coeff(FILTER_SMOOTH_S, sample_rate);
-        self.smoothed_filter += filter_coeff * (self.target_filter(item) - self.smoothed_filter);
+        self.smoothed_filter += filter_coeff * (params.filter - self.smoothed_filter);
         let filter = self.smoothed_filter;
 
         for out_ch in 0..self.output_fifo.len() {
@@ -668,6 +658,7 @@ impl FreezeInstrument {
         note: u8,
         channel: u8,
         velocity: f32,
+        params: InstrumentProcessParams,
         pool: &[CapturedFreeze],
         assignments: &[Option<usize>; PAD_COUNT],
     ) {
@@ -681,12 +672,16 @@ impl FreezeInstrument {
             return;
         };
         self.engine.note_on(
-            pad,
-            item_index,
+            HeldNote {
+                pad,
+                item_index,
+                note,
+                channel,
+                velocity: clamp(velocity, 0.0, 1.0),
+                physically_held: true,
+            },
             item,
-            note,
-            channel,
-            velocity,
+            params.clamped().filter,
             self.sample_rate,
         );
     }
@@ -704,13 +699,6 @@ impl FreezeInstrument {
 
     pub fn active_pads(&self) -> [bool; PAD_COUNT] {
         self.engine.active_pads()
-    }
-
-    /// When set, playback follows this filter value instead of the captured
-    /// item's stored one. Used by the audition voice so filter drags don't
-    /// require republishing the item.
-    pub fn set_filter_override(&mut self, filter: Option<f32>) {
-        self.engine.filter_override = filter.map(|f| clamp(f, 0.0, 1.0));
     }
 
     pub fn process_block(
