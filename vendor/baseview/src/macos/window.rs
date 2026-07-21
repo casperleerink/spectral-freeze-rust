@@ -378,14 +378,26 @@ impl WindowState {
         state
     }
 
+    // AppKit can call back into the view synchronously while the handler is
+    // still borrowed by on_frame — e.g. opening a file-dialog sheet from
+    // inside a frame makes the window resign key, which delivers
+    // windowDidResignKey re-entrantly. These callbacks arrive through
+    // `extern "C"` fns where a panic cannot unwind and aborts the host, so a
+    // re-entrant event/frame is dropped instead of borrowing twice.
     pub(super) fn trigger_event(&self, event: Event) -> EventStatus {
+        let Ok(mut handler) = self.window_handler.try_borrow_mut() else {
+            return EventStatus::Ignored;
+        };
         let mut window = crate::Window::new(Window { inner: &self.window_inner });
-        self.window_handler.borrow_mut().on_event(&mut window, event)
+        handler.on_event(&mut window, event)
     }
 
     pub(super) fn trigger_frame(&self) {
+        let Ok(mut handler) = self.window_handler.try_borrow_mut() else {
+            return;
+        };
         let mut window = crate::Window::new(Window { inner: &self.window_inner });
-        self.window_handler.borrow_mut().on_frame(&mut window);
+        handler.on_frame(&mut window);
     }
 
     pub(super) fn keyboard_state(&self) -> &KeyboardState {
