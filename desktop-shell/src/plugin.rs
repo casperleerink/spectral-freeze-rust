@@ -1,8 +1,12 @@
 use crate::params::SpectralFreezeParams;
 use crate::state::{EditorRuntime, PadActivityAtomics};
 use crate::ui::draw_editor;
-use dsp::{CapturedFreeze, FreezeInstrument, InstrumentProcessParams, PAD_COUNT, pad_note};
+use dsp::{
+    CapturedFreeze, FreezeInstrument, INSTRUMENT_PARAMS, InstrumentProcessParams, PAD_COUNT,
+    PARAM_FILTER, pad_note,
+};
 use nih_plug::prelude::*;
+use nih_plug::wrapper::state::ParamValue;
 use nih_plug_egui::{create_egui_editor, egui::CentralPanel};
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
@@ -99,6 +103,16 @@ impl Plugin for SpectralFreezePlugin {
 
     fn params(&self) -> Arc<dyn Params> {
         self.params.clone()
+    }
+
+    // States saved before the global Filter param existed have no "filter"
+    // entry, and nih-plug leaves absent params at their current value on load.
+    // Pin them to the default so old presets recall deterministically.
+    fn filter_state(state: &mut PluginState) {
+        state
+            .params
+            .entry("filter".to_string())
+            .or_insert(ParamValue::F32(INSTRUMENT_PARAMS[PARAM_FILTER].default));
     }
 
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {

@@ -204,6 +204,53 @@ fn projected_amp(samples: &[f32], freq: f32, sample_rate: f32) -> f32 {
 }
 
 #[test]
+fn filter_param_removes_weak_partials_and_keeps_dominant_ones() {
+    let sample_rate = 44_100.0;
+    let source: Vec<f32> = sine_buffer(330.0, 0.3, sample_rate, FFT_SIZE * 8)
+        .iter()
+        .zip(sine_buffer(880.0, 0.06, sample_rate, FFT_SIZE * 8))
+        .map(|(a, b)| a + b)
+        .collect();
+    let item = capture_freeze_from_audio(&[source], sample_rate, FFT_SIZE * 4, None).unwrap();
+    let pool = vec![item];
+    let mut assignments = [None; PAD_COUNT];
+    assignments[0] = Some(0);
+
+    let render = |filter: f32| {
+        let params = InstrumentProcessParams {
+            filter,
+            ..expression_params(0.0, 0.0)
+        };
+        let mut instrument = FreezeInstrument::default();
+        instrument.prepare(sample_rate, 1);
+        instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, params, &pool, &assignments);
+        let rendered = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 8);
+        (
+            projected_amp(&rendered, 330.0, sample_rate),
+            projected_amp(&rendered, 880.0, sample_rate),
+        )
+    };
+
+    let (open_strong, open_weak) = render(0.0);
+    assert!(
+        open_strong > 1.0e-3 && open_weak > 1.0e-4,
+        "filter at zero should pass both partials: strong={open_strong}, weak={open_weak}"
+    );
+
+    // threshold = max_mag * filter^2; 0.8^2 = 0.64 sits between the weak
+    // partial (~0.2 of max) and the dominant one.
+    let (filtered_strong, filtered_weak) = render(0.8);
+    assert!(
+        filtered_strong > open_strong * 0.5,
+        "dominant partial should survive the filter: open={open_strong}, filtered={filtered_strong}"
+    );
+    assert!(
+        filtered_weak < open_weak * 0.1,
+        "weak partial should be removed by the filter: open={open_weak}, filtered={filtered_weak}"
+    );
+}
+
+#[test]
 fn captured_freeze_preserves_pitch_when_source_rate_differs_from_playback_rate() {
     let source_sample_rate = 48_000.0;
     let playback_sample_rate = 44_100.0;
