@@ -169,14 +169,22 @@ impl Plugin for SpectralFreezePlugin {
             self.cached_audition_revision = runtime.audition_revision;
             self.cached_editor_frame_generation = runtime.editor_frame_generation;
         }
-        if let Ok(state) = self.params.instrument_state.try_lock()
-            && (state.audio_revision != self.cached_audio_state_revision
+        if let Ok(state) = self.params.instrument_state.try_lock() {
+            if state.audio_revision != self.cached_audio_state_revision
                 || state.pool.len() != self.cached_pool.len()
-                || state.pad_assignments != self.cached_pad_assignments)
-        {
-            self.cached_pool = state.pool.clone();
-            self.cached_pad_assignments = state.pad_assignments;
-            self.cached_audio_state_revision = state.audio_revision;
+                || state.pad_assignments != self.cached_pad_assignments
+            {
+                self.cached_pool = state.pool.clone();
+                self.cached_pad_assignments = state.pad_assignments;
+                self.cached_audio_state_revision = state.audio_revision;
+            } else {
+                // Filter edits don't bump the revision: cloning the pool
+                // allocates on the audio thread and clicks while dragging.
+                // Copying the plain values every block is allocation-free.
+                for (cached, item) in self.cached_pool.iter_mut().zip(state.pool.iter()) {
+                    cached.filter = item.filter;
+                }
+            }
         }
 
         let mouse_gates = self.cached_mouse_gates;

@@ -124,7 +124,12 @@ pub(super) fn draw_waveform(
             )
             .clicked()
         {
-            loader::open_dialog(runtime);
+            // Stored by our vendored egui-baseview so dialogs can be parented
+            // to the plugin window (macOS only; None elsewhere).
+            let ns_view = ui
+                .ctx()
+                .data(|data| data.get_temp::<usize>(egui::Id::new("egui_baseview_ns_view")));
+            loader::open_dialog(runtime, ns_view);
         }
     }
 }
