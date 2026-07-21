@@ -1,5 +1,5 @@
 use super::{theme::UiTheme, waveform::draw_waveform};
-use crate::state::{EditorRuntime, InstrumentState, Selection};
+use crate::state::{EditorRuntime, InstrumentState};
 use dsp::capture_freeze_from_audio;
 use nih_plug_egui::egui::{self, Color32, RichText, Stroke};
 
@@ -45,12 +45,10 @@ pub(super) fn draw_source_panel(
                             source.sample_rate,
                             state.source_cursor_sample,
                             Some(&source.path.to_string_lossy()),
-                            state.contextual_filter,
                         )
                     {
                         state.pool.push(item);
                         state.mark_audio_state_changed();
-                        state.selection = Selection::Pool(state.pool.len() - 1);
                     }
                 });
             });

@@ -48,9 +48,8 @@ fn sine_projection(samples: &[f32], freq: f32, sample_rate: f32, offset: usize) 
 fn capture_embeds_spectral_data_and_metadata() {
     let sample_rate = 44_100.0;
     let source = vec![sine_buffer(440.0, 0.25, sample_rate, FFT_SIZE * 4)];
-    let item =
-        capture_freeze_from_audio(&source, sample_rate, FFT_SIZE, Some("/tmp/vocal.wav"), 0.25)
-            .expect("capture should succeed");
+    let item = capture_freeze_from_audio(&source, sample_rate, FFT_SIZE, Some("/tmp/vocal.wav"))
+        .expect("capture should succeed");
     assert_eq!(item.channel_count(), 1);
     assert_eq!(item.channels[0].mag.len(), NUM_BINS);
     assert_eq!(item.channels[0].phase.len(), NUM_BINS);
@@ -58,7 +57,6 @@ fn capture_embeds_spectral_data_and_metadata() {
     assert_eq!(item.source_path.as_deref(), Some("/tmp/vocal.wav"));
     assert_eq!(item.cursor_sample, FFT_SIZE);
     assert!(item.name.contains("vocal.wav @"));
-    assert!((item.filter - 0.25).abs() < 1.0e-6);
 }
 
 #[test]
@@ -66,7 +64,7 @@ fn captured_freeze_tracks_source_phase_advance() {
     let sample_rate = 44_100.0;
     let frequency = 440.0;
     let source = vec![sine_buffer(frequency, 0.3, sample_rate, FFT_SIZE * 8)];
-    let item = capture_freeze_from_audio(&source, sample_rate, FFT_SIZE * 4, None, 0.0)
+    let item = capture_freeze_from_audio(&source, sample_rate, FFT_SIZE * 4, None)
         .expect("capture should succeed");
 
     let dominant_bin = item.channels[0]
@@ -88,14 +86,21 @@ fn captured_freeze_tracks_source_phase_advance() {
 fn instrument_note_triggers_assigned_pad_and_releases() {
     let sample_rate = 44_100.0;
     let source = vec![sine_buffer(440.0, 0.3, sample_rate, FFT_SIZE * 4)];
-    let item = capture_freeze_from_audio(&source, sample_rate, FFT_SIZE, None, 0.0).unwrap();
+    let item = capture_freeze_from_audio(&source, sample_rate, FFT_SIZE, None).unwrap();
     let pool = vec![item];
     let mut assignments = [None; PAD_COUNT];
     assignments[0] = Some(0);
 
     let mut instrument = FreezeInstrument::default();
     instrument.prepare(sample_rate, 1);
-    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
+    instrument.note_on(
+        FIRST_PAD_MIDI_NOTE,
+        0,
+        1.0,
+        InstrumentProcessParams::default(),
+        &pool,
+        &assignments,
+    );
 
     let mut block = vec![0.0_f32; FFT_SIZE * 6];
     let mut channels: [&mut [f32]; 1] = [&mut block];
@@ -119,7 +124,7 @@ fn instrument_note_triggers_assigned_pad_and_releases() {
 fn sustain_pedal_holds_note_off_until_released() {
     let sample_rate = 44_100.0;
     let source = vec![sine_buffer(440.0, 0.3, sample_rate, FFT_SIZE * 4)];
-    let item = capture_freeze_from_audio(&source, sample_rate, FFT_SIZE, None, 0.0).unwrap();
+    let item = capture_freeze_from_audio(&source, sample_rate, FFT_SIZE, None).unwrap();
     let pool = vec![item];
     let mut assignments = [None; PAD_COUNT];
     assignments[0] = Some(0);
@@ -127,7 +132,7 @@ fn sustain_pedal_holds_note_off_until_released() {
     instrument.prepare(sample_rate, 1);
     let params = InstrumentProcessParams::default();
 
-    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
+    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, params, &pool, &assignments);
     instrument.set_sustain(true, params);
     instrument.note_off(FIRST_PAD_MIDI_NOTE, 0, params);
     assert!(
@@ -153,7 +158,6 @@ fn two_tone_instrument_fixture() -> (
         sample_rate,
         FFT_SIZE * 4,
         None,
-        0.0,
     )
     .unwrap();
     let item_b = capture_freeze_from_audio(
@@ -161,7 +165,6 @@ fn two_tone_instrument_fixture() -> (
         sample_rate,
         FFT_SIZE * 4,
         None,
-        0.0,
     )
     .unwrap();
     let pool = vec![item_a, item_b];
@@ -179,6 +182,7 @@ fn expression_params(glide_s: f32, release_s: f32) -> InstrumentProcessParams {
         release_s,
         glide_s,
         organic: 0.0,
+        filter: 0.0,
     }
 }
 
@@ -210,7 +214,7 @@ fn captured_freeze_preserves_pitch_when_source_rate_differs_from_playback_rate()
         source_sample_rate,
         FFT_SIZE * 8,
     )];
-    let item = capture_freeze_from_audio(&source, source_sample_rate, FFT_SIZE * 4, None, 0.0)
+    let item = capture_freeze_from_audio(&source, source_sample_rate, FFT_SIZE * 4, None)
         .expect("capture should succeed");
     let pool = vec![item];
     let mut assignments = [None; PAD_COUNT];
@@ -218,7 +222,14 @@ fn captured_freeze_preserves_pitch_when_source_rate_differs_from_playback_rate()
     let mut instrument = FreezeInstrument::default();
     instrument.prepare(playback_sample_rate, 1);
 
-    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
+    instrument.note_on(
+        FIRST_PAD_MIDI_NOTE,
+        0,
+        1.0,
+        expression_params(0.0, 0.0),
+        &pool,
+        &assignments,
+    );
     let rendered = render_instrument(
         &mut instrument,
         &pool,
@@ -243,7 +254,7 @@ fn fresh_note_seeds_directly_even_with_long_glide() {
     let (sample_rate, pool, assignments, mut instrument) = two_tone_instrument_fixture();
     let params = expression_params(5.0, 0.0);
 
-    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
+    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, params, &pool, &assignments);
     let rendered = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 8);
 
     let a330 = projected_amp(&rendered, 330.0, sample_rate);
@@ -259,9 +270,9 @@ fn legato_note_on_moves_to_newest_target_without_layering() {
     let (sample_rate, pool, assignments, mut instrument) = two_tone_instrument_fixture();
     let params = expression_params(0.0, 0.0);
 
-    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
+    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, params, &pool, &assignments);
     let _ = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 4);
-    instrument.note_on(FIRST_PAD_MIDI_NOTE + 1, 0, 1.0, &pool, &assignments);
+    instrument.note_on(FIRST_PAD_MIDI_NOTE + 1, 0, 1.0, params, &pool, &assignments);
     let rendered = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 8);
 
     let active = instrument.active_pads();
@@ -279,9 +290,9 @@ fn releasing_latest_note_returns_to_previous_held_note() {
     let (sample_rate, pool, assignments, mut instrument) = two_tone_instrument_fixture();
     let params = expression_params(0.0, 0.0);
 
-    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
+    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, params, &pool, &assignments);
     let _ = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 4);
-    instrument.note_on(FIRST_PAD_MIDI_NOTE + 1, 0, 1.0, &pool, &assignments);
+    instrument.note_on(FIRST_PAD_MIDI_NOTE + 1, 0, 1.0, params, &pool, &assignments);
     let _ = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 4);
     instrument.note_off(FIRST_PAD_MIDI_NOTE + 1, 0, params);
     let rendered = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 8);
@@ -305,7 +316,7 @@ fn final_release_closes_gate_to_silence() {
     let (_sample_rate, pool, assignments, mut instrument) = two_tone_instrument_fixture();
     let params = expression_params(0.0, 0.0);
 
-    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
+    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, params, &pool, &assignments);
     let _ = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 4);
     instrument.note_off(FIRST_PAD_MIDI_NOTE, 0, params);
     let rendered = render_instrument(&mut instrument, &pool, params, HOP_SIZE * 2);
@@ -322,11 +333,11 @@ fn detached_note_after_silence_does_not_glide_from_stale_state() {
     let (sample_rate, pool, assignments, mut instrument) = two_tone_instrument_fixture();
     let params = expression_params(5.0, 0.0);
 
-    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, &pool, &assignments);
+    instrument.note_on(FIRST_PAD_MIDI_NOTE, 0, 1.0, params, &pool, &assignments);
     let _ = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 4);
     instrument.note_off(FIRST_PAD_MIDI_NOTE, 0, params);
     let _ = render_instrument(&mut instrument, &pool, params, FFT_SIZE);
-    instrument.note_on(FIRST_PAD_MIDI_NOTE + 1, 0, 1.0, &pool, &assignments);
+    instrument.note_on(FIRST_PAD_MIDI_NOTE + 1, 0, 1.0, params, &pool, &assignments);
     let rendered = render_instrument(&mut instrument, &pool, params, FFT_SIZE * 8);
 
     let a330 = projected_amp(&rendered, 330.0, sample_rate);

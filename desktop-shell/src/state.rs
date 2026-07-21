@@ -13,14 +13,6 @@ fn next_audio_revision() -> u64 {
     COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub(crate) enum Selection {
-    #[default]
-    Waveform,
-    Pool(usize),
-    Pad(usize),
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct InstrumentState {
     pub(crate) pool: Vec<CapturedFreeze>,
@@ -30,8 +22,6 @@ pub(crate) struct InstrumentState {
     pub(crate) source_path: Option<String>,
     pub(crate) source_cursor_sample: usize,
     pub(crate) source_sample_rate: f32,
-    pub(crate) contextual_filter: f32,
-    pub(crate) selection: Selection,
 }
 
 impl Default for InstrumentState {
@@ -43,8 +33,6 @@ impl Default for InstrumentState {
             source_path: None,
             source_cursor_sample: 0,
             source_sample_rate: 44_100.0,
-            contextual_filter: 0.0,
-            selection: Selection::Waveform,
         }
     }
 }
@@ -79,9 +67,6 @@ pub(crate) struct EditorRuntime {
     pub(crate) pending_source_rx: Option<mpsc::Receiver<Option<Result<LoadedSource, String>>>>,
     pub(crate) audition_enabled: bool,
     pub(crate) audition_item: Option<Arc<CapturedFreeze>>,
-    /// Live filter for the audition voice. Kept outside the (heavy, immutable)
-    /// audition item so filter drags don't reallocate or restart anything.
-    pub(crate) audition_filter: f32,
     pub(crate) audition_revision: u64,
     pub(crate) editor_frame_generation: u64,
     pub(crate) mouse_pad_gates: [bool; PAD_COUNT],
@@ -97,7 +82,6 @@ impl Default for EditorRuntime {
             pending_source_rx: None,
             audition_enabled: true,
             audition_item: None,
-            audition_filter: 0.0,
             audition_revision: 0,
             editor_frame_generation: 0,
             mouse_pad_gates: [false; PAD_COUNT],

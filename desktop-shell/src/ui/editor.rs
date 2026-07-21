@@ -1,6 +1,6 @@
 use super::{
-    bottom_panel::draw_bottom_panel, filter_panel::draw_filter_panel, pad_grid::draw_pad_grid,
-    pool_panel::draw_pool_panel, source_panel::draw_source_panel, theme::UiTheme,
+    bottom_panel::draw_bottom_panel, pad_grid::draw_pad_grid, pool_panel::draw_pool_panel,
+    source_panel::draw_source_panel, theme::UiTheme,
 };
 use crate::params::SpectralFreezeParams;
 use crate::source::loader;
@@ -33,21 +33,7 @@ pub(crate) fn draw_editor(
         .inner_margin(egui::Margin::same(16))
         .show(ui, |ui| {
             ui.vertical(|ui| {
-                ui.horizontal_top(|ui| {
-                    let spacing = ui.spacing().item_spacing.x;
-                    let filter_width = 178.0;
-                    let source_width = (ui.available_width() - filter_width - spacing).max(360.0);
-                    ui.allocate_ui_with_layout(
-                        Vec2::new(source_width, 0.0),
-                        egui::Layout::top_down(egui::Align::Min),
-                        |ui| draw_source_panel(ui, &mut runtime, &mut state, &theme),
-                    );
-                    ui.allocate_ui_with_layout(
-                        Vec2::new(filter_width, 0.0),
-                        egui::Layout::top_down(egui::Align::Min),
-                        |ui| draw_filter_panel(ui, &mut state, &theme),
-                    );
-                });
+                draw_source_panel(ui, &mut runtime, &mut state, &theme);
 
                 ui.columns(2, |columns| {
                     draw_pool_panel(&mut columns[0], &mut runtime, &mut state, &theme);
@@ -60,7 +46,7 @@ pub(crate) fn draw_editor(
                     );
                 });
 
-                draw_bottom_panel(ui, setter, params, &mut state, &theme);
+                draw_bottom_panel(ui, setter, params, &theme);
             });
         });
 
@@ -136,11 +122,6 @@ fn refresh_audition(runtime: &mut EditorRuntime, state: &InstrumentState) {
         return;
     };
 
-    // Filter changes don't touch the audition item at all: the audio thread
-    // applies `audition_filter` as a live override, so dragging the knob never
-    // reallocates the item or restarts the voice.
-    runtime.audition_filter = state.contextual_filter;
-
     let source_path = source.path.to_string_lossy();
     let needs_capture = match &runtime.audition_item {
         None => true,
@@ -156,7 +137,6 @@ fn refresh_audition(runtime: &mut EditorRuntime, state: &InstrumentState) {
             source.sample_rate,
             state.source_cursor_sample,
             Some(&source_path),
-            state.contextual_filter,
         )
         .map(Arc::new);
         runtime.audition_revision = runtime.audition_revision.wrapping_add(1);

@@ -1,5 +1,5 @@
 use super::wav::load_wav;
-use crate::state::{EditorRuntime, InstrumentState, LoadedSource, Selection};
+use crate::state::{EditorRuntime, InstrumentState, LoadedSource};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, TryRecvError};
 use std::thread;
@@ -35,7 +35,6 @@ fn apply_loaded_source(
     state.source_path = Some(source.path.to_string_lossy().to_string());
     state.source_sample_rate = source.sample_rate;
     state.source_cursor_sample = 0;
-    state.selection = Selection::Waveform;
     runtime.source = Some(source);
     runtime.file_error = None;
     runtime.audition_revision = runtime.audition_revision.wrapping_add(1);

@@ -1,6 +1,6 @@
 use super::theme::UiTheme;
 use crate::source::loader;
-use crate::state::{EditorRuntime, InstrumentState, Selection};
+use crate::state::{EditorRuntime, InstrumentState};
 use nih_plug_egui::egui::{self, Color32, Pos2, Rect, Stroke, Vec2};
 use std::path::PathBuf;
 
@@ -67,7 +67,6 @@ pub(super) fn draw_waveform(
             let pos = response.interact_pointer_pos().unwrap();
             let t = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
             state.source_cursor_sample = ((len - 1) as f32 * t).round() as usize;
-            state.selection = Selection::Waveform;
             runtime.audition_revision = runtime.audition_revision.wrapping_add(1);
         }
 

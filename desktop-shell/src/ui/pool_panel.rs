@@ -1,6 +1,6 @@
 use super::theme::UiTheme;
-use crate::state::{EditorRuntime, InstrumentState, Selection};
-use nih_plug_egui::egui::{self, Color32, RichText, Stroke, Vec2};
+use crate::state::{EditorRuntime, InstrumentState};
+use nih_plug_egui::egui::{self, RichText, Stroke, Vec2};
 
 pub(super) fn draw_pool_panel(
     ui: &mut egui::Ui,
@@ -31,23 +31,15 @@ pub(super) fn draw_pool_panel(
                     .show(ui, |ui| {
                         let mut delete_idx = None;
                         for idx in 0..state.pool.len() {
-                            let selected =
-                                matches!(state.selection, Selection::Pool(i) if i == idx);
                             let dragging = runtime.drag_pool_item == Some(idx);
                             ui.horizontal(|ui| {
-                                let label = format!(
-                                    "{}  ·  F{}%",
-                                    state.pool[idx].name,
-                                    (state.pool[idx].filter * 100.0).round() as i32
-                                );
+                                let label = state.pool[idx].name.clone();
                                 let (fill, label_color, stroke) = if dragging {
                                     (
                                         theme.accent.gamma_multiply(0.35),
                                         theme.fg,
                                         Stroke::new(1.0, theme.accent),
                                     )
-                                } else if selected {
-                                    (theme.accent, Color32::BLACK, Stroke::NONE)
                                 } else {
                                     (theme.panel2, theme.fg, Stroke::NONE)
                                 };
@@ -62,9 +54,6 @@ pub(super) fn draw_pool_panel(
                                         ))
                                         .sense(egui::Sense::click_and_drag()),
                                 );
-                                if response.clicked() {
-                                    state.selection = Selection::Pool(idx);
-                                }
                                 if response.drag_started() {
                                     runtime.drag_pool_item = Some(idx);
                                 }
@@ -92,7 +81,6 @@ pub(super) fn draw_pool_panel(
                                 }
                             }
                             state.mark_audio_state_changed();
-                            state.selection = Selection::Waveform;
                         }
                     });
             });
