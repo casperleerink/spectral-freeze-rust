@@ -1,8 +1,17 @@
 use dsp::{CapturedFreeze, PAD_COUNT};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
+
+/// Audio revisions come from one global counter so every value is unique: a
+/// freshly deserialized state (host preset load) can never collide with the
+/// revision the audio thread already cached, even when pool length and pad
+/// assignments happen to match.
+fn next_audio_revision() -> u64 {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    COUNTER.fetch_add(1, Ordering::Relaxed)
+}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) enum Selection {
@@ -16,7 +25,7 @@ pub(crate) enum Selection {
 pub(crate) struct InstrumentState {
     pub(crate) pool: Vec<CapturedFreeze>,
     pub(crate) pad_assignments: [Option<usize>; PAD_COUNT],
-    #[serde(skip)]
+    #[serde(skip, default = "next_audio_revision")]
     pub(crate) audio_revision: u64,
     pub(crate) source_path: Option<String>,
     pub(crate) source_cursor_sample: usize,
@@ -30,7 +39,7 @@ impl Default for InstrumentState {
         Self {
             pool: Vec::new(),
             pad_assignments: [None; PAD_COUNT],
-            audio_revision: 0,
+            audio_revision: next_audio_revision(),
             source_path: None,
             source_cursor_sample: 0,
             source_sample_rate: 44_100.0,
@@ -42,7 +51,7 @@ impl Default for InstrumentState {
 
 impl InstrumentState {
     pub(crate) fn mark_audio_state_changed(&mut self) {
-        self.audio_revision = self.audio_revision.wrapping_add(1);
+        self.audio_revision = next_audio_revision();
     }
 }
 
@@ -70,6 +79,9 @@ pub(crate) struct EditorRuntime {
     pub(crate) pending_source_rx: Option<mpsc::Receiver<Option<Result<LoadedSource, String>>>>,
     pub(crate) audition_enabled: bool,
     pub(crate) audition_item: Option<Arc<CapturedFreeze>>,
+    /// Live filter for the audition voice. Kept outside the (heavy, immutable)
+    /// audition item so filter drags don't reallocate or restart anything.
+    pub(crate) audition_filter: f32,
     pub(crate) audition_revision: u64,
     pub(crate) editor_frame_generation: u64,
     pub(crate) mouse_pad_gates: [bool; PAD_COUNT],
@@ -85,6 +97,7 @@ impl Default for EditorRuntime {
             pending_source_rx: None,
             audition_enabled: true,
             audition_item: None,
+            audition_filter: 0.0,
             audition_revision: 0,
             editor_frame_generation: 0,
             mouse_pad_gates: [false; PAD_COUNT],

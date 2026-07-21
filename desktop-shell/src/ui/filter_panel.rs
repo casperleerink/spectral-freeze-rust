@@ -61,6 +61,8 @@ pub(super) fn current_context_filter(state: &InstrumentState) -> f32 {
     }
 }
 
+// Filter edits deliberately do NOT call mark_audio_state_changed: the audio
+// thread picks plain filter values up every block without recloning the pool.
 pub(super) fn set_context_filter(state: &mut InstrumentState, value: f32) {
     let value = value.clamp(0.0, 1.0);
     match state.selection {
@@ -68,7 +70,6 @@ pub(super) fn set_context_filter(state: &mut InstrumentState, value: f32) {
         Selection::Pool(idx) => {
             if let Some(item) = state.pool.get_mut(idx) {
                 item.filter = value;
-                state.mark_audio_state_changed();
             }
         }
         Selection::Pad(pad) => {
@@ -76,7 +77,6 @@ pub(super) fn set_context_filter(state: &mut InstrumentState, value: f32) {
                 && let Some(item) = state.pool.get_mut(idx)
             {
                 item.filter = value;
-                state.mark_audio_state_changed();
             }
         }
     }

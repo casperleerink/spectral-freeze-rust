@@ -1,7 +1,7 @@
 use super::theme::UiTheme;
 use crate::state::{EditorRuntime, InstrumentState, Selection};
-use dsp::{PAD_COUNT, note_label, pad_note};
-use nih_plug_egui::egui::{self, Color32, RichText, Stroke, Vec2};
+use dsp::{PAD_COUNT, format_time, note_label, pad_note};
+use nih_plug_egui::egui::{self, Align2, Color32, FontId, RichText, Stroke, Vec2};
 
 pub(super) fn draw_pad_grid(
     ui: &mut egui::Ui,
@@ -62,72 +62,7 @@ pub(super) fn draw_pad_grid(
                         for row in 0..4 {
                             for col in 0..4 {
                                 let pad = row * 4 + col;
-                                let assigned =
-                                    state.pad_assignments[pad].and_then(|i| state.pool.get(i));
-                                let selected =
-                                    matches!(state.selection, Selection::Pad(p) if p == pad);
-                                let is_drop_target = runtime.drag_pool_item.is_some();
-                                let fill = if active[pad] || runtime.mouse_pad_gates[pad] {
-                                    theme.accent
-                                } else if selected {
-                                    Color32::from_rgb(82, 105, 128)
-                                } else if is_drop_target {
-                                    theme.panel2.linear_multiply(1.35)
-                                } else if assigned.is_some() {
-                                    theme.panel2
-                                } else {
-                                    theme.panel2.gamma_multiply(0.55)
-                                };
-                                let fill = if source_auditioning && !active[pad] {
-                                    fill.gamma_multiply(0.72)
-                                } else {
-                                    fill
-                                };
-                                let short = assigned
-                                    .map(|i| short_name(&i.name))
-                                    .unwrap_or_else(|| "Empty".to_string());
-                                let text = format!(
-                                    "Pad {}  {}\n{}",
-                                    pad + 1,
-                                    note_label(pad_note(pad)),
-                                    short
-                                );
-                                let response = ui.add_sized(
-                                    pad_size,
-                                    egui::Button::new(RichText::new(text).size(11.0).color(
-                                        if fill == theme.accent {
-                                            Color32::BLACK
-                                        } else if source_auditioning {
-                                            theme.fg_dim
-                                        } else {
-                                            theme.fg
-                                        },
-                                    ))
-                                    .truncate()
-                                    .fill(fill)
-                                    .stroke(Stroke::new(1.0, theme.border)),
-                                );
-                                runtime.mouse_pad_gates[pad] =
-                                    response.is_pointer_button_down_on() && assigned.is_some();
-                                if response.clicked() {
-                                    state.selection = Selection::Pad(pad);
-                                }
-                                if response.contains_pointer()
-                                    && ui.input(|i| i.pointer.any_released())
-                                    && let Some(idx) = runtime.drag_pool_item.take()
-                                    && idx < state.pool.len()
-                                {
-                                    state.pad_assignments[pad] = Some(idx);
-                                    state.mark_audio_state_changed();
-                                    state.selection = Selection::Pad(pad);
-                                }
-                                response.context_menu(|ui| {
-                                    if ui.button("Clear pad").clicked() {
-                                        state.pad_assignments[pad] = None;
-                                        state.mark_audio_state_changed();
-                                        ui.close_menu();
-                                    }
-                                });
+                                draw_pad(ui, runtime, state, active, theme, pad, pad_size);
                             }
                             ui.end_row();
                         }
@@ -137,6 +72,126 @@ pub(super) fn draw_pad_grid(
                 }
             });
         });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_pad(
+    ui: &mut egui::Ui,
+    runtime: &mut EditorRuntime,
+    state: &mut InstrumentState,
+    active: [bool; PAD_COUNT],
+    theme: &UiTheme,
+    pad: usize,
+    pad_size: Vec2,
+) {
+    let source_auditioning = runtime.audition_enabled;
+    let assigned = state.pad_assignments[pad].and_then(|i| state.pool.get(i));
+    let selected = matches!(state.selection, Selection::Pad(p) if p == pad);
+    let is_drop_target = runtime.drag_pool_item.is_some();
+
+    let (rect, response) = ui.allocate_exact_size(pad_size, egui::Sense::click());
+    let hovered_drop = is_drop_target && response.contains_pointer();
+    let playing = active[pad] || runtime.mouse_pad_gates[pad];
+
+    let fill = if playing {
+        theme.accent
+    } else if hovered_drop {
+        theme.accent.gamma_multiply(0.35)
+    } else if selected {
+        Color32::from_rgb(82, 105, 128)
+    } else if is_drop_target {
+        theme.panel2.linear_multiply(1.35)
+    } else if assigned.is_some() {
+        theme.panel2
+    } else {
+        theme.panel2.gamma_multiply(0.55)
+    };
+    let fill = if source_auditioning && !playing {
+        fill.gamma_multiply(0.72)
+    } else {
+        fill
+    };
+    let stroke = if hovered_drop {
+        Stroke::new(2.0, theme.accent)
+    } else if assigned.is_some() {
+        Stroke::new(1.0, theme.accent.gamma_multiply(0.45))
+    } else {
+        Stroke::new(1.0, theme.border)
+    };
+
+    let (header_color, name_color, time_color) = if playing {
+        (Color32::BLACK, Color32::BLACK, Color32::BLACK)
+    } else if source_auditioning {
+        (theme.fg_dim.gamma_multiply(0.8), theme.fg_dim, theme.fg_dim)
+    } else {
+        (theme.fg_dim, theme.fg, theme.accent.gamma_multiply(0.85))
+    };
+
+    let painter = ui.painter().with_clip_rect(rect);
+    painter.rect_filled(rect, 8.0, fill);
+    painter.rect_stroke(rect, 8.0, stroke, egui::StrokeKind::Inside);
+    painter.text(
+        rect.left_top() + Vec2::new(8.0, 6.0),
+        Align2::LEFT_TOP,
+        format!("Pad {} · {}", pad + 1, note_label(pad_note(pad))),
+        FontId::proportional(9.0),
+        header_color,
+    );
+    match assigned {
+        Some(item) => {
+            painter.text(
+                rect.left_top() + Vec2::new(8.0, 21.0),
+                Align2::LEFT_TOP,
+                short_name(base_name(&item.name)),
+                FontId::proportional(11.0),
+                name_color,
+            );
+            painter.text(
+                rect.left_top() + Vec2::new(8.0, 38.0),
+                Align2::LEFT_TOP,
+                format!("@ {}", format_time(item.cursor_time_seconds)),
+                FontId::monospace(9.0),
+                time_color,
+            );
+        }
+        None => {
+            painter.text(
+                rect.left_top() + Vec2::new(8.0, 21.0),
+                Align2::LEFT_TOP,
+                if is_drop_target { "Drop here" } else { "Empty" },
+                FontId::proportional(11.0),
+                theme.fg_dim.gamma_multiply(0.8),
+            );
+        }
+    }
+
+    runtime.mouse_pad_gates[pad] =
+        response.is_pointer_button_down_on() && state.pad_assignments[pad].is_some();
+    if response.clicked() {
+        state.selection = Selection::Pad(pad);
+    }
+    if response.contains_pointer()
+        && ui.input(|i| i.pointer.any_released())
+        && let Some(idx) = runtime.drag_pool_item.take()
+        && idx < state.pool.len()
+    {
+        state.pad_assignments[pad] = Some(idx);
+        state.mark_audio_state_changed();
+        state.selection = Selection::Pad(pad);
+    }
+    response.context_menu(|ui| {
+        if ui.button("Clear pad").clicked() {
+            state.pad_assignments[pad] = None;
+            state.mark_audio_state_changed();
+            ui.close_menu();
+        }
+    });
+}
+
+/// The pool item name is "file.wav @ mm:ss.mmm"; the pad shows the file part
+/// on its own line and the timestamp separately.
+fn base_name(name: &str) -> &str {
+    name.split(" @ ").next().unwrap_or(name)
 }
 
 fn short_name(name: &str) -> String {

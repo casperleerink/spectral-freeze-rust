@@ -64,7 +64,49 @@ pub(crate) fn draw_editor(
             });
         });
 
+    draw_drag_ghost(ui.ctx(), &runtime, &state, &theme);
+
     refresh_audition(&mut runtime, &state);
+}
+
+/// Floating label that follows the pointer while a pool item is dragged, since
+/// the OS cursor can't be changed on macOS and the drop needs a clear affordance.
+fn draw_drag_ghost(
+    ctx: &egui::Context,
+    runtime: &EditorRuntime,
+    state: &InstrumentState,
+    theme: &UiTheme,
+) {
+    let Some(idx) = runtime.drag_pool_item else {
+        return;
+    };
+    let Some(item) = state.pool.get(idx) else {
+        return;
+    };
+    let Some(pos) = ctx.pointer_latest_pos() else {
+        return;
+    };
+
+    egui::Area::new(egui::Id::new("pool-drag-ghost"))
+        .order(egui::Order::Tooltip)
+        .fixed_pos(pos + Vec2::new(14.0, 12.0))
+        .interactable(false)
+        .show(ctx, |ui| {
+            egui::Frame::NONE
+                .fill(theme.panel2)
+                .stroke(egui::Stroke::new(1.0, theme.accent))
+                .corner_radius(6.0)
+                .inner_margin(egui::Margin::symmetric(8, 6))
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    ui.label(egui::RichText::new(&item.name).size(11.0).color(theme.fg));
+                    ui.label(
+                        egui::RichText::new("Drop on a pad")
+                            .size(9.0)
+                            .color(theme.fg_dim),
+                    );
+                });
+        });
 }
 
 fn sync_runtime_source_metadata(runtime: &mut EditorRuntime, state: &mut InstrumentState) {
@@ -93,25 +135,30 @@ fn refresh_audition(runtime: &mut EditorRuntime, state: &InstrumentState) {
         runtime.audition_item = None;
         return;
     };
-    let next = capture_freeze_from_audio(
-        &source.channels,
-        source.sample_rate,
-        state.source_cursor_sample,
-        Some(&source.path.to_string_lossy()),
-        state.contextual_filter,
-    )
-    .map(Arc::new);
-    let changed = match (&runtime.audition_item, &next) {
-        (Some(a), Some(b)) => {
-            a.cursor_sample != b.cursor_sample
-                || (a.filter - b.filter).abs() > 1.0e-6
-                || a.source_path != b.source_path
+
+    // Filter changes don't touch the audition item at all: the audio thread
+    // applies `audition_filter` as a live override, so dragging the knob never
+    // reallocates the item or restarts the voice.
+    runtime.audition_filter = state.contextual_filter;
+
+    let source_path = source.path.to_string_lossy();
+    let needs_capture = match &runtime.audition_item {
+        None => true,
+        Some(item) => {
+            item.cursor_sample != state.source_cursor_sample
+                || item.source_path.as_deref() != Some(source_path.as_ref())
         }
-        (None, None) => false,
-        _ => true,
     };
-    if changed {
+
+    if needs_capture {
+        runtime.audition_item = capture_freeze_from_audio(
+            &source.channels,
+            source.sample_rate,
+            state.source_cursor_sample,
+            Some(&source_path),
+            state.contextual_filter,
+        )
+        .map(Arc::new);
         runtime.audition_revision = runtime.audition_revision.wrapping_add(1);
     }
-    runtime.audition_item = next;
 }

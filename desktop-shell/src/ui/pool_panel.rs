@@ -33,25 +33,35 @@ pub(super) fn draw_pool_panel(
                         for idx in 0..state.pool.len() {
                             let selected =
                                 matches!(state.selection, Selection::Pool(i) if i == idx);
+                            let dragging = runtime.drag_pool_item == Some(idx);
                             ui.horizontal(|ui| {
                                 let label = format!(
                                     "{}  ·  F{}%",
                                     state.pool[idx].name,
                                     (state.pool[idx].filter * 100.0).round() as i32
                                 );
-                                let response =
-                                    ui.add(
-                                        egui::Button::new(RichText::new(label).color(
-                                            if selected { Color32::BLACK } else { theme.fg },
-                                        ))
-                                        .fill(if selected { theme.accent } else { theme.panel2 })
+                                let (fill, label_color, stroke) = if dragging {
+                                    (
+                                        theme.accent.gamma_multiply(0.35),
+                                        theme.fg,
+                                        Stroke::new(1.0, theme.accent),
+                                    )
+                                } else if selected {
+                                    (theme.accent, Color32::BLACK, Stroke::NONE)
+                                } else {
+                                    (theme.panel2, theme.fg, Stroke::NONE)
+                                };
+                                let response = ui.add(
+                                    egui::Button::new(RichText::new(label).color(label_color))
+                                        .fill(fill)
+                                        .stroke(stroke)
                                         .truncate()
                                         .min_size(Vec2::new(
                                             (ui.available_width() - 26.0).max(0.0),
                                             24.0,
                                         ))
                                         .sense(egui::Sense::click_and_drag()),
-                                    );
+                                );
                                 if response.clicked() {
                                     state.selection = Selection::Pool(idx);
                                 }

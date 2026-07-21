@@ -227,7 +227,7 @@ pub fn capture_freeze_from_audio(
     })
 }
 
-fn format_time(seconds: f32) -> String {
+pub fn format_time(seconds: f32) -> String {
     let total_ms = (seconds.max(0.0) * 1000.0).round() as u64;
     let minutes = total_ms / 60_000;
     let secs = (total_ms / 1000) % 60;
@@ -237,6 +237,9 @@ fn format_time(seconds: f32) -> String {
 
 const PHASE_GLIDE_RATIO: f32 = 1.0;
 const SILENCE_AMP: f32 = 1.0e-5;
+// Filter edits arrive from the UI at block rate; smooth them independently of
+// glide so threshold sweeps stay click-free even with glide at zero.
+const FILTER_SMOOTH_S: f32 = 0.05;
 
 fn glide_coeff(time_s: f32, sample_rate: f32) -> f32 {
     if time_s <= 0.0 || sample_rate <= 0.0 {
@@ -286,6 +289,11 @@ struct MonoSpectralEngine {
     current_phase_advance: Vec<Box<[f32; NUM_BINS]>>,
     organic_am: Vec<OrganicAmState>,
     organic_scratch: Vec<OrganicScratch>,
+    /// Live filter target replacing the item's stored filter when set. Lets a
+    /// host feed continuous filter edits without republishing the (heavy)
+    /// captured item itself.
+    filter_override: Option<f32>,
+    smoothed_filter: f32,
     amp: f32,
     output_fifo: Vec<Box<[f32; FFT_SIZE]>>,
     spectrum: Box<[Complex32; FFT_SIZE]>,
@@ -306,6 +314,8 @@ impl MonoSpectralEngine {
             current_phase_advance: Vec::new(),
             organic_am: Vec::new(),
             organic_scratch: Vec::new(),
+            filter_override: None,
+            smoothed_filter: 0.0,
             amp: 0.0,
             output_fifo: Vec::new(),
             spectrum: Box::new([Complex32::new(0.0, 0.0); FFT_SIZE]),
@@ -345,6 +355,7 @@ impl MonoSpectralEngine {
         self.held_notes.clear();
         self.active_target = None;
         self.sustain_down = false;
+        self.smoothed_filter = 0.0;
         self.amp = 0.0;
         self.clear_spectral_state();
         for organic_am in &mut self.organic_am {
@@ -429,6 +440,10 @@ impl MonoSpectralEngine {
         self.sustain_down = down;
     }
 
+    fn target_filter(&self, item: &CapturedFreeze) -> f32 {
+        self.filter_override.unwrap_or(item.filter)
+    }
+
     fn recompute_active_target(&mut self) {
         self.active_target = self.held_notes.last().cloned();
         self.gate = self.active_target.is_some();
@@ -457,11 +472,12 @@ impl MonoSpectralEngine {
 
         let phase_rate_ratio =
             phase_advance_rate_ratio(item.source_sample_rate, playback_sample_rate);
+        self.smoothed_filter = self.target_filter(item);
         for out_ch in 0..self.current_mag.len() {
             let src_ch = out_ch.min(item.channels.len() - 1);
             let channel = &item.channels[src_ch];
             let max_mag = channel.mag.iter().copied().fold(0.0_f32, f32::max);
-            let threshold = max_mag * item.filter * item.filter;
+            let threshold = max_mag * self.smoothed_filter * self.smoothed_filter;
 
             for k in 0..NUM_BINS {
                 let raw_mag = channel.mag.get(k).copied().unwrap_or(0.0);
@@ -493,13 +509,16 @@ impl MonoSpectralEngine {
         let mag_coeff = glide_coeff(params.glide_s, sample_rate);
         let phase_coeff = glide_coeff(params.glide_s * PHASE_GLIDE_RATIO, sample_rate);
         let organic_amt = params.organic;
+        let filter_coeff = glide_coeff(FILTER_SMOOTH_S, sample_rate);
+        self.smoothed_filter += filter_coeff * (self.target_filter(item) - self.smoothed_filter);
+        let filter = self.smoothed_filter;
 
         for out_ch in 0..self.output_fifo.len() {
             self.spectrum.fill(Complex32::new(0.0, 0.0));
             let src_ch = out_ch.min(item.channels.len() - 1);
             let channel = &item.channels[src_ch];
             let max_mag = channel.mag.iter().copied().fold(0.0_f32, f32::max);
-            let threshold = max_mag * item.filter * item.filter;
+            let threshold = max_mag * filter * filter;
 
             if organic_amt > 0.0 {
                 let organic_am = &mut self.organic_am[out_ch];
@@ -565,7 +584,7 @@ impl MonoSpectralEngine {
                 &mut self.rng,
                 &mut self.organic_scratch[out_ch],
                 organic_amt,
-                item.filter,
+                filter,
             );
             rebuild_conjugate_mirror(self.spectrum.as_mut());
             inverse_fft.process(self.spectrum.as_mut_slice());
@@ -685,6 +704,13 @@ impl FreezeInstrument {
 
     pub fn active_pads(&self) -> [bool; PAD_COUNT] {
         self.engine.active_pads()
+    }
+
+    /// When set, playback follows this filter value instead of the captured
+    /// item's stored one. Used by the audition voice so filter drags don't
+    /// require republishing the item.
+    pub fn set_filter_override(&mut self, filter: Option<f32>) {
+        self.engine.filter_override = filter.map(|f| clamp(f, 0.0, 1.0));
     }
 
     pub fn process_block(

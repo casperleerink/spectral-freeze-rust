@@ -41,7 +41,7 @@ fn apply_loaded_source(
     runtime.audition_revision = runtime.audition_revision.wrapping_add(1);
 }
 
-pub(crate) fn open_dialog(runtime: &mut EditorRuntime) {
+pub(crate) fn open_dialog(runtime: &mut EditorRuntime, parent_ns_view: Option<usize>) {
     if runtime.pending_source_rx.is_some() {
         return;
     }
@@ -51,19 +51,66 @@ pub(crate) fn open_dialog(runtime: &mut EditorRuntime) {
     runtime.file_error = None;
     runtime.file_status = Some("Opening WAV picker…".to_string());
 
+    #[cfg(not(target_os = "macos"))]
+    let _ = parent_ns_view;
+
+    #[allow(unused_mut)]
+    let mut dialog = rfd::AsyncFileDialog::new()
+        .set_title("Load WAV")
+        .add_filter("WAV audio", &["wav"]);
+    // Without a parent, rfd attaches the panel to the host's main window
+    // (e.g. Ableton's), which puts it behind the floating plugin window.
+    // Parenting it to our own view opens it as a sheet on the plugin window.
+    #[cfg(target_os = "macos")]
+    if let Some(parent) = parent_ns_view.and_then(macos::ParentWindow::new) {
+        dialog = dialog.set_parent(&parent);
+    }
+    // Create the future here on the GUI thread: on macOS this is the AppKit
+    // main thread, and rfd resolves the parent view into an NSWindow while
+    // building the future. Doing that on a worker thread would touch AppKit
+    // off-main and could race an editor teardown. The worker only polls.
+    let future = dialog.pick_file();
+
     thread::spawn(move || {
-        let picked = pollster::block_on(
-            rfd::AsyncFileDialog::new()
-                .set_title("Load WAV")
-                .add_filter("WAV audio", &["wav"])
-                .pick_file(),
-        );
+        let picked = pollster::block_on(future);
         let result = picked.map(|handle| {
             let path = handle.path().to_owned();
             load_wav(&path)
         });
         let _ = tx.send(result);
     });
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use raw_window_handle::{
+        AppKitDisplayHandle, AppKitWindowHandle, DisplayHandle, HandleError, HasDisplayHandle,
+        HasWindowHandle, RawDisplayHandle, RawWindowHandle, WindowHandle,
+    };
+    use std::ffi::c_void;
+    use std::ptr::NonNull;
+
+    pub(super) struct ParentWindow(NonNull<c_void>);
+
+    impl ParentWindow {
+        pub(super) fn new(ns_view: usize) -> Option<Self> {
+            NonNull::new(ns_view as *mut c_void).map(Self)
+        }
+    }
+
+    impl HasWindowHandle for ParentWindow {
+        fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
+            let handle = RawWindowHandle::AppKit(AppKitWindowHandle::new(self.0));
+            Ok(unsafe { WindowHandle::borrow_raw(handle) })
+        }
+    }
+
+    impl HasDisplayHandle for ParentWindow {
+        fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
+            let handle = RawDisplayHandle::AppKit(AppKitDisplayHandle::new());
+            Ok(unsafe { DisplayHandle::borrow_raw(handle) })
+        }
+    }
 }
 
 pub(crate) fn load_path(runtime: &mut EditorRuntime, path: PathBuf) {

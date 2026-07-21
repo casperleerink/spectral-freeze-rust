@@ -127,6 +127,19 @@ where
         });
         let egui_ctx = egui::Context::default();
 
+        // Expose the host window handle to the embedding app (e.g. so file
+        // dialogs can be parented to the plugin window). Stored as a raw
+        // pointer value in egui's temp memory under a well-known id.
+        #[cfg(target_os = "macos")]
+        if let raw_window_handle::RawWindowHandle::AppKit(handle) = window.raw_window_handle() {
+            egui_ctx.data_mut(|data| {
+                data.insert_temp(
+                    egui::Id::new("egui_baseview_ns_view"),
+                    handle.ns_view as usize,
+                )
+            });
+        }
+
         // Assume scale for now until there is an event with a new one.
         let pixels_per_point = match open_settings.scale_policy {
             WindowScalePolicy::ScaleFactor(scale) => scale,

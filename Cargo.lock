@@ -3016,6 +3016,7 @@ dependencies = [
  "nih_plug",
  "nih_plug_egui",
  "pollster",
+ "raw-window-handle 0.6.2",
  "rfd",
  "serde",
 ]
