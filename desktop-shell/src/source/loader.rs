@@ -54,19 +54,25 @@ pub(crate) fn open_dialog(runtime: &mut EditorRuntime, parent_ns_view: Option<us
     #[cfg(not(target_os = "macos"))]
     let _ = parent_ns_view;
 
+    #[allow(unused_mut)]
+    let mut dialog = rfd::AsyncFileDialog::new()
+        .set_title("Load WAV")
+        .add_filter("WAV audio", &["wav"]);
+    // Without a parent, rfd attaches the panel to the host's main window
+    // (e.g. Ableton's), which puts it behind the floating plugin window.
+    // Parenting it to our own view opens it as a sheet on the plugin window.
+    #[cfg(target_os = "macos")]
+    if let Some(parent) = parent_ns_view.and_then(macos::ParentWindow::new) {
+        dialog = dialog.set_parent(&parent);
+    }
+    // Create the future here on the GUI thread: on macOS this is the AppKit
+    // main thread, and rfd resolves the parent view into an NSWindow while
+    // building the future. Doing that on a worker thread would touch AppKit
+    // off-main and could race an editor teardown. The worker only polls.
+    let future = dialog.pick_file();
+
     thread::spawn(move || {
-        #[allow(unused_mut)]
-        let mut dialog = rfd::AsyncFileDialog::new()
-            .set_title("Load WAV")
-            .add_filter("WAV audio", &["wav"]);
-        // Without a parent, rfd attaches the panel to the host's main window
-        // (e.g. Ableton's), which puts it behind the floating plugin window.
-        // Parenting it to our own view opens it as a sheet on the plugin window.
-        #[cfg(target_os = "macos")]
-        if let Some(parent) = parent_ns_view.and_then(macos::ParentWindow::new) {
-            dialog = dialog.set_parent(&parent);
-        }
-        let picked = pollster::block_on(dialog.pick_file());
+        let picked = pollster::block_on(future);
         let result = picked.map(|handle| {
             let path = handle.path().to_owned();
             load_wav(&path)

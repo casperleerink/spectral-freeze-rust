@@ -17,6 +17,7 @@ pub struct SpectralFreezePlugin {
     cached_mouse_gates: [bool; PAD_COUNT],
     cached_audition_enabled: bool,
     cached_audition_item: Option<Arc<CapturedFreeze>>,
+    cached_audition_filter: f32,
     cached_audition_revision: u64,
     cached_editor_frame_generation: u64,
     cached_pool: Vec<CapturedFreeze>,
@@ -39,6 +40,7 @@ impl Default for SpectralFreezePlugin {
             cached_mouse_gates: [false; PAD_COUNT],
             cached_audition_enabled: false,
             cached_audition_item: None,
+            cached_audition_filter: 0.0,
             cached_audition_revision: 0,
             cached_editor_frame_generation: 0,
             cached_pool: Vec::new(),
@@ -144,6 +146,7 @@ impl Plugin for SpectralFreezePlugin {
         self.cached_mouse_gates = [false; PAD_COUNT];
         self.cached_audition_enabled = false;
         self.cached_audition_item = None;
+        self.cached_audition_filter = 0.0;
         self.cached_audition_revision = 0;
         self.cached_editor_frame_generation = 0;
         self.cached_pool.clear();
@@ -166,6 +169,7 @@ impl Plugin for SpectralFreezePlugin {
             self.cached_mouse_gates = runtime.mouse_pad_gates;
             self.cached_audition_enabled = runtime.audition_enabled;
             self.cached_audition_item = runtime.audition_item.clone();
+            self.cached_audition_filter = runtime.audition_filter;
             self.cached_audition_revision = runtime.audition_revision;
             self.cached_editor_frame_generation = runtime.editor_frame_generation;
         }
@@ -271,6 +275,8 @@ impl Plugin for SpectralFreezePlugin {
                     None,
                     None,
                 ];
+                self.audition
+                    .set_filter_override(Some(self.cached_audition_filter));
                 if audition_revision != self.last_audition_revision {
                     self.audition.reset();
                     self.audition

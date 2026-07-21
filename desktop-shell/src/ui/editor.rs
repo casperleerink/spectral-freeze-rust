@@ -136,6 +136,11 @@ fn refresh_audition(runtime: &mut EditorRuntime, state: &InstrumentState) {
         return;
     };
 
+    // Filter changes don't touch the audition item at all: the audio thread
+    // applies `audition_filter` as a live override, so dragging the knob never
+    // reallocates the item or restarts the voice.
+    runtime.audition_filter = state.contextual_filter;
+
     let source_path = source.path.to_string_lossy();
     let needs_capture = match &runtime.audition_item {
         None => true,
@@ -155,13 +160,5 @@ fn refresh_audition(runtime: &mut EditorRuntime, state: &InstrumentState) {
         )
         .map(Arc::new);
         runtime.audition_revision = runtime.audition_revision.wrapping_add(1);
-    } else if let Some(item) = &runtime.audition_item
-        && (item.filter - state.contextual_filter).abs() > 1.0e-6
-    {
-        // Filter-only change: swap the item without bumping the revision so
-        // the audition voice keeps sounding instead of restarting per tick.
-        let mut updated = (**item).clone();
-        updated.filter = state.contextual_filter;
-        runtime.audition_item = Some(Arc::new(updated));
     }
 }
